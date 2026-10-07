@@ -18,7 +18,7 @@
   ===== 設定說明 =====
   1. 預覽模式：CONFIG.firebase 留 null 時，資料只存在這個分頁，重新整理就會回到範例資料。
   2. 正式上線：把 Firebase 的 firebaseConfig 貼到下方 CONFIG.firebase。
-     集合：duck_public（公開：日期、寵物名字、主人姓氏遮罩）
+     集合：duck_public（公開：日期、寵物名字）
            duck_bookings（後台：主人姓名、聯絡方式、備註）
            duck_capacity（每晚鴨鵝已佔用數，防止超收）
            duck_gallery（館內環境照片，從後台上傳）
@@ -433,7 +433,7 @@ function splitDoc(d){
   const pets = d.pets.map(p => ({type:p.type, name:p.name.trim(), qty:Number(p.qty)||1, photo:p.photo||''}));
   const base = {checkIn:d.checkIn, checkOut:d.checkOut, pets, waterfowl:wfCount(pets), status:'active', createdAt:Date.now()};
   return {
-    pub:  {...base, ownerMasked: mask(d.ownerName)},
+    pub:  {...base},
     priv: {...base, ownerName:d.ownerName.trim(), contact:d.contact.trim(), notes:(d.notes||'').trim()}
   };
 }
@@ -605,7 +605,7 @@ function renderDay(){
       ${avatarsHtml(b)}
       <div>
         <div class="names">${b.pets.map(p => esc(p.name) + (p.qty>1 ? ` ×${p.qty}` : '')).join('、')}${tag}</div>
-        <div class="meta">${b.ownerMasked ? `${esc(b.ownerMasked)}家｜` : ''}${md(b.checkIn)} – ${md(b.checkOut)}</div>
+        <div class="meta">${md(b.checkIn)} – ${md(b.checkOut)}</div>
       </div></div>`;
   }).join('') : `<div class="empty-state">這天還沒有住客。</div>`;
 
