@@ -186,6 +186,12 @@ textarea.field{min-height:84px;resize:vertical}
 .sheet .sum{text-align:left;background:var(--latte-soft);border-radius:16px;padding:10px 14px;margin-top:12px;font-size:14.5px}
 .sheet .btn{margin-top:16px}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--cocoa);color:#fff;padding:9px 18px;border-radius:999px;font-size:14.5px;z-index:30;max-width:90vw;text-align:center}
+/* ---------- 記住我的資料 ---------- */
+.remember{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-top:18px}
+.check{display:flex;align-items:center;gap:8px;font-size:14.5px;cursor:pointer}
+.check input{width:20px;height:20px;accent-color:var(--brown);margin:0}
+.remember-note{margin-top:6px;background:var(--latte-soft);border-radius:12px;padding:6px 10px}
+
 /* ---------- 館內環境 ---------- */
 .gallery{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;margin:12px -18px 0;padding:0 18px 6px;scroll-padding:0 18px;-webkit-overflow-scrolling:touch}
 .g-item{flex:0 0 86%;scroll-snap-align:start;border:0;background:none;padding:0;cursor:zoom-in;text-align:left}
@@ -330,6 +336,11 @@ footer button{border:0;background:none;color:var(--soft);text-decoration:underli
         <textarea class="field" id="notes" placeholder="飲食習慣、怕什麼、要帶的東西…"></textarea>
       </div>
 
+      <div class="remember">
+        <label class="check"><input type="checkbox" id="rememberMe" checked> 記住我的資料，下次自動填好</label>
+        <button type="button" class="link-btn" id="forgetMe" hidden>清除已記住的資料</button>
+      </div>
+      <p class="hint remember-note" id="rememberNote" hidden>已帶入上次的資料，請確認寵物這次是否都要一起住。</p>
       <div class="err" id="formErr" role="alert"></div>
       <button class="btn" id="submitBtn" type="submit">送出預約</button>
     </form>
@@ -647,6 +658,39 @@ $('#nextMonth').addEventListener('click', () => shiftMonth(1));
 /* ================== 預約表單 ================== */
 let formPets = [{type:'duck', name:'', qty:1, photo:''}];
 
+/* ---------- 記住我的資料（只存在客人自己的手機） ---------- */
+const PROFILE_KEY = 'kolduck_profile_v1';
+function loadProfile(){
+  try { return JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null'); } catch { return null; }
+}
+function saveProfile(d){
+  const prof = {ownerName:d.ownerName.trim(), contact:d.contact.trim(),
+                pets:d.pets.map(p => ({type:p.type, name:p.name.trim(), qty:p.qty, photo:p.photo||''}))};
+  try { localStorage.setItem(PROFILE_KEY, JSON.stringify(prof)); }
+  catch {   // 空間不夠就不存頭貼
+    try { prof.pets.forEach(p => p.photo = ''); localStorage.setItem(PROFILE_KEY, JSON.stringify(prof)); } catch {}
+  }
+}
+function clearProfile(){ try { localStorage.removeItem(PROFILE_KEY); } catch {} }
+function applyProfile(){
+  $('#bookForm').reset();
+  const prof = loadProfile();
+  if (prof && prof.pets?.length){
+    $('#ownerName').value = prof.ownerName || '';
+    $('#contact').value = prof.contact || '';
+    formPets = prof.pets.filter(p => T[p.type]).map(p => ({type:p.type, name:p.name||'', qty:Math.max(1, Number(p.qty)||1), photo:p.photo||''}));
+  }
+  if (!formPets.length || !prof) formPets = [{type:'duck', name:'', qty:1, photo:''}];
+  $('#rememberMe').checked = true;
+  $('#forgetMe').hidden = !prof;
+  $('#rememberNote').hidden = !prof;
+  renderPetRows(); updateAvail();
+}
+$('#forgetMe').addEventListener('click', () => {
+  if (!confirm('要清除這支手機記住的主人和寵物資料嗎？')) return;
+  clearProfile(); formPets = []; applyProfile(); toast('已清除');
+});
+
 /* ---------- 頭貼 ---------- */
 function compressWide(file){
   return new Promise((res, rej) => {
@@ -786,8 +830,8 @@ $('#bookForm').addEventListener('submit', async e => {
   try {
     await store.create(data);
     showDone(data);
-    $('#bookForm').reset(); formPets = [{type:'duck', name:'', qty:1, photo:''}];
-    renderPetRows(); updateAvail();
+    if ($('#rememberMe').checked) saveProfile(data); else clearProfile();
+    formPets = []; applyProfile();
     selDate = data.checkIn; calMonth = data.checkIn.slice(0,7); renderAll();
   } catch (ex) {
     console.error(ex);
@@ -923,7 +967,7 @@ $('#galleryAdminList').addEventListener('click', async e => {
 let store;
 (async () => {
   $('#checkIn').min = today(); $('#checkOut').min = addDays(today(), 1);
-  renderPetRows(); renderAll(); renderGallery();   // 先把畫面畫出來，資料到了再補上
+  applyProfile(); renderAll(); renderGallery();   // 先把畫面畫出來，資料到了再補上
   try { store = CONFIG.firebase ? await makeFirebaseStore(CONFIG.firebase) : makeDemoStore(); }
   catch (ex){
     console.error(ex);
