@@ -188,6 +188,25 @@ textarea.field{min-height:88px;resize:vertical}
 .bk-pet .photo-pick{width:38px;height:38px}
 .cancel-btn{border:0;background:none;color:var(--full);cursor:pointer;font-size:12.5px;text-decoration:underline;text-underline-offset:3px;padding:4px 0;margin-top:6px}
 
+/* ---------- 待確認／新增住客 ---------- */
+.meter{display:flex}
+.meter span#meterHold{background:repeating-linear-gradient(135deg,var(--milk) 0 3px,transparent 3px 6px);opacity:.7}
+.guest.hold .em{background:none;border:1px dashed var(--milk);font-size:13px}
+.st-pending{color:var(--low);font-size:12.5px;letter-spacing:.08em}
+.st-ok{color:var(--brown);font-size:12.5px;letter-spacing:.08em}
+.bk.pending{border-color:#E6CBA4;background:#FFFBF4}
+.bk .bk-top{flex-wrap:wrap;row-gap:0}
+.bk-dates,.st-pending,.st-ok{white-space:nowrap}
+.bk-actions{display:flex;gap:14px;align-items:center;margin-top:10px}
+.confirm-btn{border:1px solid var(--brown);background:var(--brown);color:#fff;border-radius:8px;padding:5px 16px;font-size:13.5px;letter-spacing:.12em;cursor:pointer}
+.bk-actions .cancel-btn{margin-top:0}
+.no-owner{color:var(--soft);font-size:13px}
+.admin-tools{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
+.admin-tools .seg{margin-top:0}
+.add-guest-btn{border:1px solid var(--brown);background:none;color:var(--brown);border-radius:999px;padding:3px 14px;font-size:13px;cursor:pointer;letter-spacing:.06em}
+#addGuestForm{border-top:1px solid var(--line-soft);margin-top:16px;padding-top:4px}
+.optional{color:var(--soft);font-weight:400;font-size:12px;margin-left:6px}
+
 /* ---------- 館內環境 ---------- */
 .gallery{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;margin:16px -20px 0;padding:0 20px 4px;scroll-padding:0 20px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
 .gallery::-webkit-scrollbar{display:none}
@@ -274,7 +293,7 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
         </div>
         <div class="count" id="dayCount"></div>
       </div>
-      <div class="meter" aria-hidden="true"><span id="meterFill"></span></div>
+      <div class="meter" aria-hidden="true"><span id="meterFill"></span><span id="meterHold"></span></div>
       <div class="others" id="others"></div>
       <div id="guestList" style="margin-top:6px"></div>
       <button class="ghost-btn" id="bookThisDay">預約這天入住</button>
@@ -363,10 +382,43 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
     </section>
     <section class="panel" id="adminPanel" hidden style="margin-top:6px">
       <div class="bk-top"><h2>所有預約</h2><button type="button" class="link-btn" id="logoutBtn">登出</button></div>
-      <div class="seg" id="adminFilter">
-        <button type="button" data-f="upcoming" aria-pressed="true">住宿中與即將入住</button>
-        <button type="button" data-f="all" aria-pressed="false">全部</button>
+      <div class="admin-tools">
+        <div class="seg" id="adminFilter">
+          <button type="button" data-f="pending" aria-pressed="true">待確認</button>
+          <button type="button" data-f="upcoming" aria-pressed="false">住宿中與即將入住</button>
+          <button type="button" data-f="all" aria-pressed="false">全部</button>
+        </div>
+        <button type="button" class="add-guest-btn" id="addGuestBtn">＋ 新增住客</button>
       </div>
+      <form id="addGuestForm" hidden novalidate>
+        <div class="group">
+          <span class="label">住宿日期<span class="optional">已經住進來的，入住日填實際那天</span></span>
+          <div class="row2">
+            <label><span class="small-label">入住</span><input type="date" class="field" id="agIn"></label>
+            <label><span class="small-label">退房</span><input type="date" class="field" id="agOut"></label>
+          </div>
+        </div>
+        <div class="group">
+          <span class="label">寵物</span>
+          <div id="agPets"></div>
+          <button type="button" class="add-pet" id="agAddPet">＋ 再加一種寵物</button>
+        </div>
+        <div class="group">
+          <label class="label" for="agOwner">主人名字<span class="optional">選填</span></label>
+          <input class="field" id="agOwner">
+        </div>
+        <div class="group">
+          <label class="label" for="agContact">聯絡方式<span class="optional">選填</span></label>
+          <input class="field" id="agContact">
+        </div>
+        <div class="group">
+          <label class="label" for="agNotes">備註<span class="optional">選填</span></label>
+          <textarea class="field" id="agNotes"></textarea>
+        </div>
+        <div class="err" id="agErr" role="alert"></div>
+        <button class="btn" type="submit" id="agSubmit">新增（直接確認）</button>
+        <button type="button" class="link-btn" id="agCancel" style="display:block;margin:10px auto 0">取消</button>
+      </form>
       <div id="adminList"></div>
     </section>
     <section class="panel" id="galleryAdmin" hidden>
@@ -432,6 +484,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const wfCount = pets => pets.reduce((s,p) => s + (T[p.type]?.wf ? (Number(p.qty)||0) : 0), 0);
 const mask = n => { n = String(n||'').trim(); return n ? n[0] + '○○' : ''; };
 const active = b => b.status !== 'canceled';
+const isPending = b => b.status === 'pending';
 const petText = p => `${esc(p.name)}<span style="color:var(--soft)">・${T[p.type]?.label||'寵物'}${p.qty>1 ? ` ${p.qty} 隻` : ''}</span>`;
 
 function toast(msg){
@@ -440,12 +493,12 @@ function toast(msg){
 }
 class FullError extends Error { constructor(date){ super('full'); this.date = date; } }
 
-function splitDoc(d){
+function splitDoc(d, status = 'pending'){
   const pets = d.pets.map(p => ({type:p.type, name:p.name.trim(), qty:Number(p.qty)||1, photo:p.photo||''}));
-  const base = {checkIn:d.checkIn, checkOut:d.checkOut, pets, waterfowl:wfCount(pets), status:'active', createdAt:Date.now()};
+  const base = {checkIn:d.checkIn, checkOut:d.checkOut, pets, waterfowl:wfCount(pets), status, createdAt:Date.now()};
   return {
     pub:  {...base},
-    priv: {...base, ownerName:d.ownerName.trim(), contact:d.contact.trim(), notes:(d.notes||'').trim()}
+    priv: {...base, ownerName:(d.ownerName||'').trim(), contact:(d.contact||'').trim(), notes:(d.notes||'').trim()}
   };
 }
 
@@ -462,13 +515,13 @@ function makeDemoStore(){
   let seq = 1;
   const snap = arr => arr.map(x => ({...x}));
   const emit = () => { subsP.forEach(f => f(snap(pub))); subsV.forEach(f => f(snap(priv))); };
-  const add = data => { const id = 'demo' + (seq++); const {pub:p, priv:v} = splitDoc(data); pub.push({id, ...p}); priv.push({id, ...v}); };
+  const add = (data, status = 'confirmed') => { const id = 'demo' + (seq++); const {pub:p, priv:v} = splitDoc(data, status); pub.push({id, ...p}); priv.push({id, ...v}); };
   const t = today();
   add({checkIn:addDays(t,-1), checkOut:addDays(t,2), ownerName:'林小姐', contact:'0912-345-678', notes:'怕打雷，晚上請留小夜燈', pets:[{type:'duck',name:'布丁',qty:1},{type:'duck',name:'麻糬、湯圓',qty:2}]});
   add({checkIn:t, checkOut:addDays(t,1), ownerName:'陳先生', contact:'LINE: chen_duck', notes:'', pets:[{type:'goose',name:'大白',qty:1}]});
   add({checkIn:addDays(t,-2), checkOut:t, ownerName:'王小姐', contact:'0987-654-321', notes:'會自備飼料', pets:[{type:'cat',name:'咪咪',qty:1}]});
   add({checkIn:addDays(t,4), checkOut:addDays(t,6), ownerName:'吳小姐', contact:'0922-111-000', notes:'鴨鴨社團團體入住', pets:[{type:'duck',name:'鴨鴨團',qty:15}]});
-  add({checkIn:addDays(t,5), checkOut:addDays(t,6), ownerName:'黃先生', contact:'LINE: huang88', notes:'', pets:[{type:'goose',name:'阿鵝、二鵝',qty:5}]});
+  add({checkIn:addDays(t,5), checkOut:addDays(t,6), ownerName:'黃先生', contact:'LINE: huang88', notes:'', pets:[{type:'goose',name:'阿鵝、二鵝',qty:5}]}, 'pending');
   add({checkIn:addDays(t,3), checkOut:addDays(t,6), ownerName:'張先生', contact:'0911-222-333', notes:'', pets:[{type:'duck',name:'小黃們',qty:6},{type:'dog',name:'旺財',qty:1}]});
   return {
     mode:'demo',
@@ -481,12 +534,13 @@ function makeDemoStore(){
     async addGallery(src){ gal.push({id:'g'+(seq++), src, caption:'', order:Date.now()}); emitG(); },
     async updateGallery(id, patch){ const g = gal.find(x => x.id === id); if (g) Object.assign(g, patch); emitG(); },
     async deleteGallery(id){ const i = gal.findIndex(x => x.id === id); if (i >= 0) gal.splice(i, 1); emitG(); },
-    async create(data){
+    async create(data, status = 'pending'){
       const wf = wfCount(data.pets);
       if (wf > 0) for (const d of nightsOf(data.checkIn, data.checkOut))
         if (occupancyOn(d, pub) + wf > CAP) throw new FullError(d);
-      add(data); emit();
+      add(data, status); emit();
     },
+    async confirm(id){ [pub, priv].forEach(arr => { const x = arr.find(b => b.id === id); if (x && x.status === 'pending') x.status = 'confirmed'; }); emit(); },
     async cancel(id){ [pub, priv].forEach(arr => { const x = arr.find(b => b.id === id); if (x) x.status = 'canceled'; }); emit(); },
     async setPhoto(id, i, photo){ [pub, priv].forEach(arr => { const x = arr.find(b => b.id === id); if (x && x.pets[i]) x.pets[i] = {...x.pets[i], photo}; }); emit(); }
   };
@@ -522,8 +576,14 @@ async function makeFirebaseStore(cfg){
     addGallery: src => fs.addDoc(fs.collection(db, 'duck_gallery'), {src, caption:'', order:Date.now()}),
     updateGallery: (id, patch) => fs.updateDoc(fs.doc(db, 'duck_gallery', id), patch),
     deleteGallery: id => fs.deleteDoc(fs.doc(db, 'duck_gallery', id)),
-    async create(data){
-      const {pub, priv} = splitDoc(data);
+    async confirm(id){
+      const batch = fs.writeBatch(db);
+      batch.update(fs.doc(db, 'duck_public', id), {status:'confirmed'});
+      batch.update(fs.doc(db, 'duck_bookings', id), {status:'confirmed'});
+      await batch.commit();
+    },
+    async create(data, status = 'pending'){
+      const {pub, priv} = splitDoc(data, status);
       const nights = nightsOf(data.checkIn, data.checkOut);
       await fs.runTransaction(db, async tx => {
         const refs = pub.waterfowl > 0 ? nights.map(d => fs.doc(db, 'duck_capacity', d)) : [];
@@ -595,10 +655,12 @@ function renderDay(){
   const st = $('#dayStatus');
   st.className = 'status ' + lv;
   st.textContent = !loaded ? '讀取中…' : d < today() ? '已過去的日期' : lv === 'full' ? '已額滿' : lv === 'low' ? `快額滿，剩 ${left} 位` : `還有 ${left} 位`;
-  $('#dayCount').innerHTML = `${occ}<small>/ ${CAP} 隻鴨鵝</small>`;
+  const hold = publicList.filter(b => isPending(b) && b.checkIn <= d && d < b.checkOut).reduce((s,b) => s + (b.waterfowl||0), 0);
+  $('#dayCount').innerHTML = `${occ}<small>/ ${CAP} 隻鴨鵝${hold ? `・其中 ${hold} 位保留中` : ''}</small>`;
   const fill = $('#meterFill');
-  fill.style.width = Math.min(100, occ / CAP * 100) + '%';
+  fill.style.width = Math.min(100, (occ - hold) / CAP * 100) + '%';
   fill.className = lv;
+  $('#meterHold').style.width = Math.min(100, hold / CAP * 100) + '%';
 
   const guests = publicList.filter(b => active(b) && b.checkIn <= d && d <= b.checkOut);
   const oc = {};
@@ -607,8 +669,17 @@ function renderDay(){
   $('#others').textContent = ocText.length ? `另外還有 ${ocText.join('、')}` : '';
 
   const order = b => b.checkOut === d ? 2 : b.checkIn === d ? 1 : 0;
-  guests.sort((a,b) => order(a) - order(b));
-  $('#guestList').innerHTML = guests.length ? guests.map(b => {
+  const pend = guests.filter(b => isPending(b) && d < b.checkOut);
+  const conf = guests.filter(b => !isPending(b)).sort((a,b) => order(a) - order(b));
+  const holdCounts = {};
+  pend.forEach(b => b.pets.forEach(p => holdCounts[p.type] = (holdCounts[p.type]||0) + p.qty));
+  const holdRow = pend.length ? `<div class="guest hold">
+      <div class="em" aria-hidden="true">保留</div>
+      <div>
+        <div class="names">保留中<span class="badge in">待館方確認</span></div>
+        <div class="meta">${Object.entries(holdCounts).map(([k,n]) => `${T[k]?.label||'寵物'} ${n} 隻`).join('、')}</div>
+      </div></div>` : '';
+  $('#guestList').innerHTML = (conf.length || pend.length) ? conf.map(b => {
     const tag = b.checkOut === d ? '<span class="badge out">退房</span>'
               : b.checkIn === d ? '<span class="badge in">入住</span>'
               : '<span class="badge stay">續住中</span>';
@@ -618,7 +689,7 @@ function renderDay(){
         <div class="names">${b.pets.map(p => esc(p.name) + (p.qty>1 ? ` ×${p.qty}` : '')).join('、')}${tag}</div>
         <div class="meta">${md(b.checkIn)} – ${md(b.checkOut)}</div>
       </div></div>`;
-  }).join('') : `<div class="empty-state">這天還沒有住客。</div>`;
+  }).join('') + holdRow : `<div class="empty-state">這天還沒有住客。</div>`;
 
   $('#bookThisDay').hidden = d < today() || lv === 'full';
   if (!loaded) $('#guestList').innerHTML = '';
@@ -656,7 +727,6 @@ $('#prevMonth').addEventListener('click', () => shiftMonth(-1));
 $('#nextMonth').addEventListener('click', () => shiftMonth(1));
 
 /* ================== 預約表單 ================== */
-let formPets = [{type:'duck', name:'', qty:1, photo:''}];
 
 /* ---------- 記住我的資料（只存在客人自己的手機） ---------- */
 const PROFILE_KEY = 'kolduck_profile_v1';
@@ -678,9 +748,9 @@ function applyProfile(){
   if (prof && prof.pets?.length){
     $('#ownerName').value = prof.ownerName || '';
     $('#contact').value = prof.contact || '';
-    formPets = prof.pets.filter(p => T[p.type]).map(p => ({type:p.type, name:p.name||'', qty:Math.max(1, Number(p.qty)||1), photo:p.photo||''}));
+    bookEd.pets = prof.pets.filter(p => T[p.type]).map(p => ({type:p.type, name:p.name||'', qty:Math.max(1, Number(p.qty)||1), photo:p.photo||''}));
   }
-  if (!formPets.length || !prof) formPets = [{type:'duck', name:'', qty:1, photo:''}];
+  if (!bookEd.pets.length || !prof) bookEd.pets = [{type:'duck', name:'', qty:1, photo:''}];
   $('#rememberMe').checked = true;
   $('#forgetMe').hidden = !prof;
   $('#rememberNote').hidden = !prof;
@@ -688,7 +758,7 @@ function applyProfile(){
 }
 $('#forgetMe').addEventListener('click', () => {
   if (!confirm('要清除這支手機記住的主人和寵物資料嗎？')) return;
-  clearProfile(); formPets = []; applyProfile(); toast('已清除');
+  clearProfile(); bookEd.pets = []; applyProfile(); toast('已清除');
 });
 
 /* ---------- 頭貼 ---------- */
@@ -749,8 +819,10 @@ document.addEventListener('click', e => {
   o.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(p.name)} 的照片"><img class="big-photo" src="${p.photo}" alt="${esc(p.name)}"><h3>${esc(p.name)}</h3><button class="btn" id="zoomClose">關閉</button></div>`;
   o.hidden = false; $('#zoomClose').focus(); $('#zoomClose').onclick = () => o.hidden = true;
 });
-function renderPetRows(){
-  $('#petRows').innerHTML = formPets.map((p,i) => `
+function petEditor(box, addBtn, onChange){
+  const ed = {pets:[{type:'duck', name:'', qty:1, photo:''}]};
+  ed.render = () => {
+    box.innerHTML = ed.pets.map((p,i) => `
     <div class="pet-row">
       <div class="type-pick" role="group" aria-label="寵物種類">
         ${TYPES.map(t => `<button type="button" class="type-chip ${p.type===t.key?'on':''}" data-i="${i}" data-type="${t.key}" aria-pressed="${p.type===t.key}">${t.label}</button>`).join('')}
@@ -768,27 +840,32 @@ function renderPetRows(){
             <button type="button" data-i="${i}" data-step="1" aria-label="增加數量">＋</button>
           </div>
         </div>
-        ${formPets.length>1 ? `<button type="button" class="link-btn" data-remove="${i}">移除</button>` : ''}
+        ${ed.pets.length>1 ? `<button type="button" class="link-btn" data-remove="${i}">移除</button>` : ''}
       </div>
     </div>`).join('');
+  };
+  box.addEventListener('click', async e => {
+    const ph = e.target.closest('[data-photo]');
+    if (ph){ const url = await pickPhoto(); if (url){ ed.pets[ph.dataset.photo].photo = url; ed.render(); } return; }
+    const chip = e.target.closest('.type-chip'), step = e.target.closest('[data-step]'), rm = e.target.closest('[data-remove]');
+    if (chip) ed.pets[chip.dataset.i].type = chip.dataset.type;
+    else if (step){ const p = ed.pets[step.dataset.i]; p.qty = Math.min(CAP, Math.max(1, p.qty + Number(step.dataset.step))); }
+    else if (rm) ed.pets.splice(Number(rm.dataset.remove), 1);
+    else return;
+    ed.render(); onChange();
+  });
+  box.addEventListener('input', e => { if (e.target.matches('input[data-i]')) ed.pets[e.target.dataset.i].name = e.target.value; });
+  addBtn.addEventListener('click', () => { ed.pets.push({type:'dog', name:'', qty:1, photo:''}); ed.render(); onChange(); });
+  return ed;
 }
-$('#petRows').addEventListener('click', async e => {
-  const ph = e.target.closest('[data-photo]');
-  if (ph){ const url = await pickPhoto(); if (url){ formPets[ph.dataset.photo].photo = url; renderPetRows(); } return; }
-  const chip = e.target.closest('.type-chip'), step = e.target.closest('[data-step]'), rm = e.target.closest('[data-remove]');
-  if (chip) formPets[chip.dataset.i].type = chip.dataset.type;
-  else if (step){ const p = formPets[step.dataset.i]; p.qty = Math.min(CAP, Math.max(1, p.qty + Number(step.dataset.step))); }
-  else if (rm) formPets.splice(Number(rm.dataset.remove), 1);
-  else return;
-  renderPetRows(); updateAvail();
-});
-$('#petRows').addEventListener('input', e => { if (e.target.matches('input[data-i]')) formPets[e.target.dataset.i].name = e.target.value; });
-$('#addPet').addEventListener('click', () => { formPets.push({type:'dog', name:'', qty:1, photo:''}); renderPetRows(); updateAvail(); });
+const bookEd = petEditor($('#petRows'), $('#addPet'), () => updateAvail());
+const agEd = petEditor($('#agPets'), $('#agAddPet'), () => {});
+function renderPetRows(){ bookEd.render(); }
 
 function rangeCheck(){
   const a = $('#checkIn').value, b = $('#checkOut').value;
   if (!a || !b || b <= a) return null;
-  const nights = nightsOf(a, b), need = wfCount(formPets);
+  const nights = nightsOf(a, b), need = wfCount(bookEd.pets);
   const peak = Math.max(...nights.map(d => occupancyOn(d)));
   return {nights:nights.length, left:CAP - peak, need, fullDay:nights.find(d => occupancyOn(d) + need > CAP)};
 }
@@ -815,7 +892,7 @@ $('#bookForm').addEventListener('submit', async e => {
   e.preventDefault();
   const err = $('#formErr'); err.textContent = '';
   const data = { checkIn:$('#checkIn').value, checkOut:$('#checkOut').value, ownerName:$('#ownerName').value,
-                 contact:$('#contact').value, notes:$('#notes').value, pets:formPets.map(p => ({...p})) };
+                 contact:$('#contact').value, notes:$('#notes').value, pets:bookEd.pets.map(p => ({...p})) };
   let msg = '';
   if (!data.checkIn || !data.checkOut) msg = '請選入住和退房日期。';
   else if (data.checkIn < today()) msg = '入住日期不能早於今天。';
@@ -831,7 +908,7 @@ $('#bookForm').addEventListener('submit', async e => {
     await store.create(data);
     showDone(data);
     if ($('#rememberMe').checked) saveProfile(data); else clearProfile();
-    formPets = []; applyProfile();
+    bookEd.pets = []; applyProfile();
     selDate = data.checkIn; calMonth = data.checkIn.slice(0,7); renderAll();
   } catch (ex) {
     console.error(ex);
@@ -843,8 +920,8 @@ function showDone(d){
   const o = $('#overlay');
   o.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="doneTitle">
     <img class="done-logo" src="${$('.brand .logo').src}" alt="">
-    <h3 id="doneTitle">預約完成</h3>
-    <p class="hint">${esc(d.ownerName.trim())}，我們會用你留的聯絡方式和你確認細節。</p>
+    <h3 id="doneTitle">預約已送出</h3>
+    <p class="hint">${esc(d.ownerName.trim())}，目前是<b>待確認</b>，位子已經先幫你保留。館方確認後，會用你留的聯絡方式通知你。</p>
     <div class="sum"><div>${md(d.checkIn)} 入住　→　${md(d.checkOut)} 退房</div>${d.pets.map(p => `<div>${petText(p)}</div>`).join('')}</div>
     <button class="btn" id="doneBtn">回首頁</button></div>`;
   o.hidden = false; $('#doneBtn').focus();
@@ -852,7 +929,7 @@ function showDone(d){
 }
 
 /* ================== 後台 ================== */
-let adminOn = false, adminFilter = 'upcoming';
+let adminOn = false, adminFilter = 'pending';
 let unsubPrivate = null;
 function enterAdmin(){
   if (adminOn) return;
@@ -875,6 +952,42 @@ $('#pinForm').addEventListener('submit', async e => {
   }
 });
 $('#logoutBtn').addEventListener('click', () => store.logout());
+
+/* ---------- 後台：新增住客（直接確認，主人資料選填） ---------- */
+function openAddGuest(show){
+  $('#addGuestForm').hidden = !show;
+  $('#addGuestBtn').hidden = show;
+  if (show){
+    $('#addGuestForm').reset(); $('#agErr').textContent = '';
+    $('#agIn').value = today(); $('#agOut').value = addDays(today(), 1);
+    agEd.pets = [{type:'duck', name:'', qty:1, photo:''}]; agEd.render();
+  }
+}
+$('#addGuestBtn').addEventListener('click', () => openAddGuest(true));
+$('#agCancel').addEventListener('click', () => openAddGuest(false));
+$('#agIn').addEventListener('change', () => { const a = $('#agIn').value; if (a && $('#agOut').value <= a) $('#agOut').value = addDays(a, 1); });
+$('#addGuestForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const err = $('#agErr'); err.textContent = '';
+  const data = { checkIn:$('#agIn').value, checkOut:$('#agOut').value, ownerName:$('#agOwner').value,
+                 contact:$('#agContact').value, notes:$('#agNotes').value, pets:agEd.pets.map(p => ({...p})) };
+  let msg = '';
+  if (!data.checkIn || !data.checkOut) msg = '請選入住和退房日期。';
+  else if (data.checkOut <= data.checkIn) msg = '退房日要在入住日之後。';
+  else if (data.pets.some(p => !p.name.trim())) msg = '每一種寵物都要填名字。';
+  if (msg){ err.textContent = msg; return; }
+  const btn = $('#agSubmit'); btn.disabled = true;
+  try {
+    await store.create(data, 'confirmed');
+    toast('已新增住客'); openAddGuest(false);
+    adminFilter = 'upcoming';
+    $('#adminFilter').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x.dataset.f === 'upcoming'));
+    renderAdmin();
+  } catch (ex){
+    console.error(ex);
+    err.textContent = ex instanceof FullError ? `${md(ex.date)} 鴨鵝已經滿 ${CAP} 隻了，請確認數量或日期。` : '新增失敗，請再試一次。';
+  } finally { btn.disabled = false; }
+});
 $('#adminFilter').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   adminFilter = b.dataset.f;
@@ -887,18 +1000,32 @@ function contactHtml(c){
 }
 function renderAdmin(){
   if (!adminOn) return;
+  const t = today();
+  const nPend = privateList.filter(b => isPending(b) && b.checkOut >= t).length;
+  $('#adminFilter [data-f="pending"]').textContent = nPend ? `待確認（${nPend}）` : '待確認';
   let list = [...privateList];
-  if (adminFilter === 'upcoming') list = list.filter(b => active(b) && b.checkOut >= today());
+  if (adminFilter === 'pending') list = list.filter(b => isPending(b) && b.checkOut >= t);
+  if (adminFilter === 'upcoming') list = list.filter(b => active(b) && !isPending(b) && b.checkOut >= t);
   list.sort((a,b) => a.checkIn.localeCompare(b.checkIn) || a.createdAt - b.createdAt);
-  $('#adminList').innerHTML = list.length ? list.map(b => `
-    <div class="bk ${active(b) ? '' : 'canceled'}">
-      <div class="bk-top"><span class="bk-dates">${md(b.checkIn)} – ${md(b.checkOut)}</span>
-        <span class="hint">${active(b) ? `${nightsOf(b.checkIn,b.checkOut).length} 晚` : '已取消'}</span></div>
-      <p><span class="bk-owner">${esc(b.ownerName)}</span>　${contactHtml(b.contact)}</p>
+  const empty = {pending:'目前沒有待確認的預約。', upcoming:'目前沒有住宿中或即將入住的住客。', all:'目前沒有預約。'}[adminFilter];
+  $('#adminList').innerHTML = list.length ? list.map(b => {
+    const stTxt = !active(b) ? '<span class="hint">已取消</span>'
+      : isPending(b) ? `<span class="st-pending">待確認・${nightsOf(b.checkIn,b.checkOut).length} 晚</span>`
+      : `<span class="st-ok">已確認・${nightsOf(b.checkIn,b.checkOut).length} 晚</span>`;
+    const owner = (b.ownerName || b.contact)
+      ? `<p><span class="bk-owner">${esc(b.ownerName||'')}</span>　${b.contact ? contactHtml(b.contact) : ''}</p>`
+      : `<p class="no-owner">未填主人資料</p>`;
+    const actions = !active(b) ? ''
+      : isPending(b) ? `<div class="bk-actions"><button class="confirm-btn" data-confirm="${b.id}">確認預約</button><button class="cancel-btn" data-cancel="${b.id}">婉拒／取消</button></div>`
+      : `<div class="bk-actions"><button class="cancel-btn" data-cancel="${b.id}">取消這筆預約</button></div>`;
+    return `<div class="bk ${!active(b) ? 'canceled' : isPending(b) ? 'pending' : ''}">
+      <div class="bk-top"><span class="bk-dates">${md(b.checkIn)} – ${md(b.checkOut)}</span>${stTxt}</div>
+      ${owner}
       <div class="bk-pets">${b.pets.map((p,i) => `<div class="bk-pet">${active(b) ? `<button type="button" class="photo-pick ${p.photo?'has':''}" data-setphoto="${b.id}:${i}" aria-label="${p.photo?'更換':'加入'} ${esc(p.name)} 的頭貼">${p.photo ? `<img src="${p.photo}" alt="">` : '加<br>頭貼'}</button>` : ''}<span>${petText(p)}</span></div>`).join('')}</div>
       ${b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
-      ${active(b) ? `<button class="cancel-btn" data-cancel="${b.id}">取消這筆預約</button>` : ''}
-    </div>`).join('') : `<div class="empty-state">目前沒有預約。</div>`;
+      ${actions}
+    </div>`;
+  }).join('') : `<div class="empty-state">${empty}</div>`;
 }
 $('#adminList').addEventListener('click', async e => {
   const sp = e.target.closest('[data-setphoto]');
@@ -907,8 +1034,15 @@ $('#adminList').addEventListener('click', async e => {
     try { await store.setPhoto(id, Number(i), url); toast('頭貼已更新'); } catch (ex){ console.error(ex); toast('頭貼沒有存成功，請再試一次'); }
     return;
   }
+  const cf = e.target.closest('[data-confirm]');
+  if (cf){
+    cf.disabled = true;
+    try { await store.confirm(cf.dataset.confirm); toast('已確認預約，記得通知客人'); }
+    catch (ex){ console.error(ex); toast('確認失敗，請再試一次'); cf.disabled = false; }
+    return;
+  }
   const b = e.target.closest('[data-cancel]'); if (!b) return;
-  if (!confirm('確定要取消這筆預約嗎？位子會釋放出來。')) return;
+  if (!confirm('確定要取消這筆預約嗎？保留的位子會釋放出來。')) return;
   try { await store.cancel(b.dataset.cancel); toast('已取消預約'); }
   catch (ex){ console.error(ex); toast('取消失敗，請再試一次'); }
 });
