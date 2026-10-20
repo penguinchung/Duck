@@ -634,7 +634,7 @@ function makeDemoStore(){
   let seq = 1;
   const snap = arr => arr.map(x => ({...x}));
   const emit = () => { subsP.forEach(f => f(snap(pub))); subsV.forEach(f => f(snap(priv))); };
-  const add = (data, status = 'confirmed') => { const id = 'demo' + (seq++); const {pub:p, priv:v} = splitDoc(data, status); pub.push({id, ...p}); priv.push({id, ...v}); };
+  const add = (data, status = 'confirmed') => { const id = 'demo' + (seq++); const {pub:p, priv:v} = splitDoc(data, status); pub.push({id, ...p}); priv.push({id, ...v}); return id; };
   const t = today();
   add({checkIn:addDays(t,-1), checkOut:addDays(t,2), ownerName:'林小姐', contact:'0912-345-678', notes:'怕打雷，晚上請留小夜燈', pets:[{type:'duck',name:'布丁',qty:1},{type:'duck',name:'麻糬、湯圓',qty:2}]});
   add({checkIn:t, checkOut:addDays(t,1), ownerName:'陳先生', contact:'LINE: chen_duck', notes:'', pets:[{type:'goose',name:'大白',qty:1}]});
@@ -658,7 +658,7 @@ function makeDemoStore(){
       if (data.longStay) checkLongFits(data.checkIn, wf);
       else if (wf > 0) for (const d of nightsOf(data.checkIn, data.checkOut))
         if (occupancyOn(d, pub) + wf > CAP) throw new FullError(d);
-      add(data, status); emit();
+      const id = add(data, status); emit(); return id;
     },
     async endStay(b, date){ [pub, priv].forEach(arr => { const x = arr.find(y => y.id === b.id); if (x) x.checkOut = date; }); emit(); },
     async update(b, data){
@@ -780,9 +780,10 @@ async function makeFirebaseStore(cfg){
         batch.set(fs.doc(db, 'duck_bookings', pRef.id), priv);
         if (pub.waterfowl > 0) batch.set(lsRef, {[pRef.id]: {from:data.checkIn, until:null, wf:pub.waterfowl}}, {merge:true});
         await batch.commit();
-        return;
+        return pRef.id;
       }
       const nights = nightsOf(data.checkIn, data.checkOut);
+      const pRef = fs.doc(fs.collection(db, 'duck_public'));
       await fs.runTransaction(db, async tx => {
         const refs = pub.waterfowl > 0 ? nights.map(d => fs.doc(db, 'duck_capacity', d)) : [];
         const lsSnap = pub.waterfowl > 0 ? await tx.get(lsRef) : null;
@@ -791,10 +792,10 @@ async function makeFirebaseStore(cfg){
         for (const r of refs){ const s = await tx.get(r); counts.push(s.exists() ? (s.data().count||0) : 0); }
         counts.forEach((c,i) => { if (c + longOn(lsMap, nights[i]) + pub.waterfowl > CAP) throw new FullError(nights[i]); });
         refs.forEach((r,i) => tx.set(r, {count: counts[i] + pub.waterfowl}, {merge:true}));
-        const pRef = fs.doc(fs.collection(db, 'duck_public'));
         tx.set(pRef, pub);
         tx.set(fs.doc(db, 'duck_bookings', pRef.id), priv);
       });
+      return pRef.id;
     },
     async setPhoto(id, i, photo){
       await fs.runTransaction(db, async tx => {
@@ -1129,8 +1130,8 @@ $('#bookForm').addEventListener('submit', async e => {
 
   const btn = $('#submitBtn'); btn.disabled = true; btn.textContent = '送出中…';
   try {
-    await store.create(data);
-    notifyNewBooking(data);
+    const id = await store.create(data);
+    notifyNewBooking(data, id);
     showDone(data);
     if ($('#rememberMe').checked) saveProfile(data); else clearProfile();
     bookEd.pets = []; applyProfile();
@@ -1142,10 +1143,11 @@ $('#bookForm').addEventListener('submit', async e => {
 });
 
 /* 新預約 Email 通知：送到館方的 Google Apps Script，由它寄信（失敗也不影響預約） */
-function notifyNewBooking(d){
+function notifyNewBooking(d, bookingId){
   if (!CONFIG.notifyUrl) return;
   const nights = nightsOf(d.checkIn, d.checkOut).length;
   const payload = {
+    bookingId,
     checkIn: d.checkIn, checkOut: d.checkOut,
     checkInText: md(d.checkIn), checkOutText: md(d.checkOut), nights,
     ownerName: d.ownerName.trim(), contact: d.contact.trim(), notes: (d.notes||'').trim(),
