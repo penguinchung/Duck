@@ -386,11 +386,15 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
       <div class="admin-tools">
         <div class="seg" id="adminFilter">
           <button type="button" data-f="pending" aria-pressed="true">待確認</button>
-          <button type="button" data-f="upcoming" aria-pressed="false">住宿中與即將入住</button>
+          <button type="button" data-f="staying" aria-pressed="false">住宿中</button>
+          <button type="button" data-f="tomorrow" aria-pressed="false">即將入住</button>
+          <button type="button" data-f="out" aria-pressed="false">已退房</button>
           <button type="button" data-f="all" aria-pressed="false">全部</button>
         </div>
         <button type="button" class="add-guest-btn" id="addGuestBtn">＋ 新增住客</button>
       </div>
+      <p class="hint" id="filterHint" style="margin-top:10px"></p>
+      <button type="button" class="link-btn" id="notifyBtn" hidden>開啟新預約通知</button>
       <form id="addGuestForm" hidden novalidate>
         <h3 id="agTitle" style="font-size:16px;margin-top:16px">新增住客</h3>
         <div class="group">
@@ -444,7 +448,8 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
 const CONFIG = {
   waterfowlCap: 26,   // 柯爾鴨 + 鵝 每晚上限
   adminPin: '1234',   // 後台密碼（預覽模式用）
-  keepDays: 7,        // 退房超過幾天的資料自動刪除；0 = 退房隔天就刪
+  keepDays: 30,       // 退房超過幾天的資料自動刪除；0 = 退房隔天就刪
+  notifyUrl: '',      // 新預約 Email 通知：貼上 Google Apps Script 的網頁應用程式網址
   firebase: {         // Firebase 專案：duck-fc461
     apiKey: "AIzaSyDkSu1PBfykSJqhtdWhBq3_frkWKijBixI",
     authDomain: "duck-fc461.firebaseapp.com",
@@ -1016,6 +1021,7 @@ $('#bookForm').addEventListener('submit', async e => {
   const btn = $('#submitBtn'); btn.disabled = true; btn.textContent = '送出中…';
   try {
     await store.create(data);
+    notifyNewBooking(data);
     showDone(data);
     if ($('#rememberMe').checked) saveProfile(data); else clearProfile();
     bookEd.pets = []; applyProfile();
@@ -1026,6 +1032,22 @@ $('#bookForm').addEventListener('submit', async e => {
   } finally { btn.disabled = false; btn.textContent = '送出預約'; }
 });
 
+/* 新預約 Email 通知：送到館方的 Google Apps Script，由它寄信（失敗也不影響預約） */
+function notifyNewBooking(d){
+  if (!CONFIG.notifyUrl) return;
+  const nights = nightsOf(d.checkIn, d.checkOut).length;
+  const payload = {
+    checkIn: d.checkIn, checkOut: d.checkOut,
+    checkInText: md(d.checkIn), checkOutText: md(d.checkOut), nights,
+    ownerName: d.ownerName.trim(), contact: d.contact.trim(), notes: (d.notes||'').trim(),
+    pets: d.pets.map(p => ({name: p.name.trim(), label: T[p.type]?.label || '寵物', qty: p.qty})),
+    waterfowl: wfCount(d.pets),
+    site: location.origin + location.pathname
+  };
+  try {
+    fetch(CONFIG.notifyUrl, {method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(payload), keepalive:true}).catch(() => {});
+  } catch {}
+}
 function showDone(d){
   const o = $('#overlay');
   o.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="doneTitle">
@@ -1046,9 +1068,44 @@ function enterAdmin(){
   adminOn = true; $('#pinPanel').hidden = true; $('#adminPanel').hidden = false; $('#galleryAdmin').hidden = false;
   $('#pinInput').value = ''; $('#pinErr').textContent = '';
   renderGallery();
-  unsubPrivate = store.subscribePrivate(l => { privateList = l; renderAdmin(); });
+  seenPending = null;
+  unsubPrivate = store.subscribePrivate(l => { privateList = l; renderAdmin(); watchNewBookings(); });
   autoCleanup();
+  $('#notifyBtn').hidden = !('Notification' in window) || Notification.permission !== 'default';
 }
+/* ---------- 新預約提醒：後台開著時，有新的待確認就響一聲並跳通知 ---------- */
+let seenPending = null;
+const baseTitle = document.title;
+function watchNewBookings(){
+  const pend = privateList.filter(b => isPending(b) && b.checkOut >= today());
+  document.title = pend.length ? `（${pend.length}）待確認｜${baseTitle}` : baseTitle;
+  const ids = new Set(pend.map(b => b.id));
+  if (seenPending === null){ seenPending = ids; return; }      // 第一次載入不提醒
+  const fresh = pend.filter(b => !seenPending.has(b.id));
+  seenPending = ids;
+  if (!fresh.length) return;
+  const b = fresh[0];
+  const msg = `新預約：${md(b.checkIn)} ${b.pets.map(p => p.name).join('、')}` + (fresh.length > 1 ? ` 等 ${fresh.length} 筆` : '');
+  toast(msg); ding();
+  try { if ('Notification' in window && Notification.permission === 'granted') new Notification('柯爾鴨休閒館｜新預約', {body: msg, icon: $('.brand .logo').src}); } catch {}
+}
+function ding(){
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    [880, 1175].forEach((f, i) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.frequency.value = f; o.connect(g); g.connect(ac.destination);
+      const t0 = ac.currentTime + i * 0.18;
+      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.2, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.3);
+      o.start(t0); o.stop(t0 + 0.32);
+    });
+  } catch {}
+}
+$('#notifyBtn').addEventListener('click', async () => {
+  try { await Notification.requestPermission(); } catch {}
+  $('#notifyBtn').hidden = true;
+  if (Notification.permission === 'granted') toast('已開啟，後台開著時有新預約會通知你');
+});
 let cleaned = false;
 async function autoCleanup(){
   if (cleaned) return; cleaned = true;
@@ -1057,6 +1114,7 @@ async function autoCleanup(){
   catch (ex){ console.error(ex); cleaned = false; }
 }
 function leaveAdmin(){
+  document.title = baseTitle;
   adminOn = false; if (typeof unsubPrivate === 'function') unsubPrivate(); unsubPrivate = null; privateList = [];
   $('#pinPanel').hidden = false; $('#adminPanel').hidden = true; $('#galleryAdmin').hidden = true;
 }
@@ -1141,8 +1199,9 @@ $('#addGuestForm').addEventListener('submit', async e => {
     } else {
       await store.create(data, 'confirmed');
       toast('已新增住客'); openAddGuest(false);
-      adminFilter = 'upcoming';
-      $('#adminFilter').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x.dataset.f === 'upcoming'));
+      const f = data.checkIn <= today() ? 'staying' : data.checkIn === addDays(today(), 1) ? 'tomorrow' : 'all';
+      adminFilter = f;
+      $('#adminFilter').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x.dataset.f === f));
       renderAdmin();
     }
   } catch (ex){
@@ -1165,16 +1224,35 @@ function contactHtml(c){
 function renderAdmin(){
   if (!adminOn) return;
   const t = today();
-  const nPend = privateList.filter(b => isPending(b) && b.checkOut >= t).length;
-  $('#adminFilter [data-f="pending"]').textContent = nPend ? `待確認（${nPend}）` : '待確認';
-  let list = [...privateList];
-  if (adminFilter === 'pending') list = list.filter(b => isPending(b) && b.checkOut >= t);
-  if (adminFilter === 'upcoming') list = list.filter(b => active(b) && !isPending(b) && b.checkOut >= t);
-  list.sort((a,b) => a.checkIn.localeCompare(b.checkIn) || a.createdAt - b.createdAt);
-  const empty = {pending:'目前沒有待確認的預約。', upcoming:'目前沒有住宿中或即將入住的住客。', all:'目前沒有預約。'}[adminFilter];
+  const tm = addDays(t, 1);
+  const ok = b => active(b) && !isPending(b);
+  const groups = {
+    pending:  b => isPending(b) && b.checkOut >= t,
+    staying:  b => ok(b) && b.checkIn <= t && t <= b.checkOut,   // 今天退房的也先留在這裡
+    tomorrow: b => ok(b) && b.checkIn === tm,
+    out:      b => ok(b) && b.checkOut < t,
+    all:      () => true
+  };
+  const labels = {pending:'待確認', staying:'住宿中', tomorrow:'即將入住', out:'已退房'};
+  Object.entries(labels).forEach(([k, name]) => {
+    const n = privateList.filter(groups[k]).length;
+    $(`#adminFilter [data-f="${k}"]`).textContent = n ? `${name}（${n}）` : name;
+  });
+  let list = privateList.filter(groups[adminFilter]);
+  if (adminFilter === 'out') list.sort((a,b) => b.checkOut.localeCompare(a.checkOut));
+  else list.sort((a,b) => a.checkIn.localeCompare(b.checkIn) || a.createdAt - b.createdAt);
+  $('#filterHint').textContent = {
+    pending: '客人送出的預約，確認或婉拒後會移到對應分頁。',
+    staying: '今天在館裡的住客，今天退房的也會顯示在這裡。',
+    tomorrow: `明天（${md(tm)}）要入住的住客。更後面的預約在「全部」。`,
+    out: `退房後保留 ${CONFIG.keepDays} 天，之後會自動刪除。`,
+    all: '所有預約，包含已取消的。'
+  }[adminFilter];
+  const empty = {pending:'目前沒有待確認的預約。', staying:'目前沒有住宿中的住客。', tomorrow:'明天沒有要入住的住客。', out:'最近沒有退房的住客。', all:'目前沒有預約。'}[adminFilter];
   $('#adminList').innerHTML = list.length ? list.map(b => {
     const stTxt = !active(b) ? '<span class="hint">已取消</span>'
       : isPending(b) ? `<span class="st-pending">待確認・${nightsOf(b.checkIn,b.checkOut).length} 晚</span>`
+      : (!isLong(b) && b.checkOut < t) ? `<span class="hint">已退房・${Math.max(0, CONFIG.keepDays - Math.round((parse(t) - parse(b.checkOut)) / 864e5))} 天後刪除</span>`
       : isLong(b) ? `<span class="st-ok">長住・${b.checkIn <= today() ? `第 ${Math.round((parse(today()) - parse(b.checkIn)) / 864e5) + 1} 天` : '尚未入住'}</span>`
       : `<span class="st-ok">已確認・${nightsOf(b.checkIn,b.checkOut).length} 晚</span>`;
     const owner = (b.ownerName || b.contact)
@@ -1183,7 +1261,7 @@ function renderAdmin(){
     const actions = !active(b) ? ''
       : isPending(b) ? `<div class="bk-actions"><button class="confirm-btn" data-confirm="${b.id}">確認預約</button><button class="edit-btn" data-edit="${b.id}">編輯</button><button class="cancel-btn" data-cancel="${b.id}">婉拒／取消</button></div>`
       : isLong(b) ? `<div class="bk-actions"><button class="confirm-btn" data-endstay="${b.id}">設定退房日</button><button class="edit-btn" data-edit="${b.id}">編輯</button><button class="cancel-btn" data-cancel="${b.id}">刪除這筆</button></div>`
-      : `<div class="bk-actions"><button class="edit-btn" data-edit="${b.id}">編輯</button><button class="cancel-btn" data-cancel="${b.id}">取消這筆預約</button></div>`;
+      : `<div class="bk-actions"><button class="edit-btn" data-edit="${b.id}">編輯</button><button class="cancel-btn" data-cancel="${b.id}">${b.checkOut < t ? '刪除這筆' : '取消這筆預約'}</button></div>`;
     return `<div class="bk ${!active(b) ? 'canceled' : isPending(b) ? 'pending' : ''}">
       <div class="bk-top"><span class="bk-dates">${rangeText(b)}</span>${stTxt}</div>
       ${owner}
