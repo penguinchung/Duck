@@ -188,6 +188,14 @@ textarea.field{min-height:88px;resize:vertical}
 .bk-pet .photo-pick{width:38px;height:38px}
 .cancel-btn{border:0;background:none;color:var(--full);cursor:pointer;font-size:12.5px;text-decoration:underline;text-underline-offset:3px;padding:4px 0;margin-top:6px}
 
+/* ---------- 預約須知 ---------- */
+.notice{margin-top:22px;background:var(--tint);border-radius:12px;padding:16px 16px 14px}
+.notice h3{font-size:15px;color:var(--cocoa);letter-spacing:.12em}
+.notice ul{margin:8px 0 0;padding-left:1.2em;font-size:13.5px;color:var(--soft);line-height:1.8}
+.notice li + li{margin-top:4px}
+.notice .agree{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);color:var(--cocoa);font-size:14px}
+.notice.need{box-shadow:0 0 0 1px var(--full)}
+
 /* ---------- 待確認／新增住客 ---------- */
 .meter{display:flex}
 .meter span#meterHold{background:repeating-linear-gradient(135deg,var(--milk) 0 3px,transparent 3px 6px);opacity:.7}
@@ -356,6 +364,16 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
         <textarea class="field" id="notes" placeholder="飲食習慣、怕什麼、要帶的東西…"></textarea>
       </div>
 
+      <div class="notice" id="notice">
+        <h3>預約須知</h3>
+        <ul>
+          <li>預訂住宿後需付款，付款完成後，待館方確認才算預訂成功。</li>
+          <li>連假及過年期間請提前預訂。</li>
+          <li>寵物有特定習慣或需要注意的地方，請先在備註完整註記。</li>
+          <li>寵物若有生病，或現場評估後不適合寄宿，館方保有拒絕寄宿的權利。</li>
+        </ul>
+        <label class="check agree"><input type="checkbox" id="agreeNotice"> 我已閱讀並同意預約須知</label>
+      </div>
       <div class="remember">
         <label class="check"><input type="checkbox" id="rememberMe" checked> 記住我的資料，下次自動填好</label>
         <button type="button" class="link-btn" id="forgetMe" hidden>清除已記住的資料</button>
@@ -871,6 +889,7 @@ function applyProfile(){
   $('#rememberNote').hidden = !prof;
   renderPetRows(); updateAvail();
 }
+$('#agreeNotice').addEventListener('change', e => { if (e.target.checked) $('#notice').classList.remove('need'); });
 $('#forgetMe').addEventListener('click', () => {
   if (!confirm('要清除這支手機記住的主人和寵物資料嗎？')) return;
   clearProfile(); bookEd.pets = []; applyProfile(); toast('已清除');
@@ -1016,6 +1035,7 @@ $('#bookForm').addEventListener('submit', async e => {
   else if (!data.contact.trim()) msg = '請填聯絡方式，館方才找得到你。';
   else if (data.pets.some(p => !p.name.trim())) msg = '每一種寵物都要填名字。';
   else if (rangeCheck()?.fullDay) msg = '選的日期鴨鵝位子不夠，請調整數量或日期。';
+  else if (!$('#agreeNotice').checked){ msg = '請先閱讀並勾選同意預約須知。'; $('#notice').classList.add('need'); }
   if (msg){ err.textContent = msg; return; }
 
   const btn = $('#submitBtn'); btn.disabled = true; btn.textContent = '送出中…';
@@ -1053,7 +1073,7 @@ function showDone(d){
   o.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="doneTitle">
     <img class="done-logo" src="${$('.brand .logo').src}" alt="">
     <h3 id="doneTitle">預約已送出</h3>
-    <p class="hint">${esc(d.ownerName.trim())}，目前是<b>待確認</b>，位子已經先幫你保留。館方確認後，會用你留的聯絡方式通知你。</p>
+    <p class="hint">${esc(d.ownerName.trim())}，位子已經先幫你保留。館方會用你留的聯絡方式和你聯繫付款，付款完成並經館方確認後，才算預訂成功。</p>
     <div class="sum"><div>${md(d.checkIn)} 入住　→　${md(d.checkOut)} 退房</div>${d.pets.map(p => `<div>${petText(p)}</div>`).join('')}</div>
     <button class="btn" id="doneBtn">回首頁</button></div>`;
   o.hidden = false; $('#doneBtn').focus();
