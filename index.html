@@ -468,6 +468,12 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
       <button type="button" class="ghost-btn" id="addGallery">＋ 上傳環境照片</button>
       <div id="galleryAdminList"></div>
     </section>
+    <section class="panel" id="dailyAdmin" hidden>
+      <h2>生活照片</h2>
+      <p class="hint">會顯示在首頁的「鴨鴨日常」，影片下面那一排，可以一次選好幾張。</p>
+      <button type="button" class="ghost-btn" id="addDaily">＋ 上傳生活照片</button>
+      <div id="dailyAdminList"></div>
+    </section>
   </main>
 
   <footer>柯爾鴨精品休閒館 台中館<br><button data-go="admin">館方後台</button></footer>
@@ -597,7 +603,7 @@ function makeDemoStore(){
     subscribePublic(f){ subsP.push(f); f(snap(pub)); },
     subscribePrivate(f){ subsV.push(f); f(snap(priv)); },
     subscribeGallery(f){ subsG.push(f); f(snap(gal)); },
-    async addGallery(src){ gal.push({id:'g'+(seq++), src, caption:'', order:Date.now()}); emitG(); },
+    async addGallery(src, section = 'env'){ gal.push({id:'g'+(seq++), src, caption:'', order:Date.now(), section}); emitG(); },
     async updateGallery(id, patch){ const g = gal.find(x => x.id === id); if (g) Object.assign(g, patch); emitG(); },
     async deleteGallery(id){ const i = gal.findIndex(x => x.id === id); if (i >= 0) gal.splice(i, 1); emitG(); },
     async create(data, status = 'pending'){
@@ -655,7 +661,7 @@ async function makeFirebaseStore(cfg){
     subscribePublic: f => sub('duck_public', f),
     subscribePrivate: f => sub('duck_bookings', f),
     subscribeGallery: f => fs.onSnapshot(fs.collection(db, 'duck_gallery'), s => f(s.docs.map(d => ({id:d.id, ...d.data()}))), err => console.error(err)),
-    addGallery: src => fs.addDoc(fs.collection(db, 'duck_gallery'), {src, caption:'', order:Date.now()}),
+    addGallery: (src, section = 'env') => fs.addDoc(fs.collection(db, 'duck_gallery'), {src, caption:'', order:Date.now(), section}),
     updateGallery: (id, patch) => fs.updateDoc(fs.doc(db, 'duck_gallery', id), patch),
     deleteGallery: id => fs.deleteDoc(fs.doc(db, 'duck_gallery', id)),
     async cleanup(cutoff){
@@ -1106,7 +1112,7 @@ let adminOn = false, adminFilter = 'pending';
 let unsubPrivate = null;
 function enterAdmin(){
   if (adminOn) return;
-  adminOn = true; $('#pinPanel').hidden = true; $('#adminPanel').hidden = false; $('#galleryAdmin').hidden = false;
+  adminOn = true; $('#pinPanel').hidden = true; $('#adminPanel').hidden = false; $('#galleryAdmin').hidden = false; $('#dailyAdmin').hidden = false;
   $('#pinInput').value = ''; $('#pinErr').textContent = '';
   renderGallery();
   seenPending = null;
@@ -1157,7 +1163,7 @@ async function autoCleanup(){
 function leaveAdmin(){
   document.title = baseTitle;
   adminOn = false; if (typeof unsubPrivate === 'function') unsubPrivate(); unsubPrivate = null; privateList = [];
-  $('#pinPanel').hidden = false; $('#adminPanel').hidden = true; $('#galleryAdmin').hidden = true;
+  $('#pinPanel').hidden = false; $('#adminPanel').hidden = true; $('#galleryAdmin').hidden = true; $('#dailyAdmin').hidden = true;
 }
 $('#pinForm').addEventListener('submit', async e => {
   e.preventDefault();
@@ -1343,8 +1349,6 @@ function renderAll(){ renderDay(); renderCal(); updateAvail(); }
 let galleryList = [];
 /* ---------- 鴨鴨日常：影片在畫面裡才播放，省流量 ---------- */
 function setupDaily(){
-  $('#daily').innerHTML = DAILY.map((g,k) => `<button type="button" class="g-item" data-zoom="g:y${k}" aria-label="放大 ${esc(g.caption)}">
-    <img src="${g.src}" alt="${esc(g.caption)}" loading="lazy"><span class="g-cap">${esc(g.caption)}</span></button>`).join('');
   const v = $('#dailyPanel video'), btn = $('#vidToggle');
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   let userPaused = reduce;
@@ -1360,51 +1364,67 @@ function setupDaily(){
 }
 setupDaily();
 
+/* ---------- 照片區：館內環境（env）與 鴨鴨日常（daily）共用 ---------- */
+const SECTIONS = {
+  env:   {grid:'#gallery', panel:'#galleryPanel', admin:'#galleryAdminList', defaults:DEFAULT_GALLERY, prefix:'d', label:'環境照片', ph:'說明，例如：戲水池'},
+  daily: {grid:'#daily',   panel:null,            admin:'#dailyAdminList',   defaults:DAILY,           prefix:'y', label:'生活照片', ph:'說明，例如：窗邊打盹'}
+};
+const sectionOf = g => g.section === 'daily' ? 'daily' : 'env';
+const sectionList = sec => galleryList.filter(g => sectionOf(g) === sec).sort((a,b) => (a.order||0) - (b.order||0));
 function renderGallery(){
-  const list = [...galleryList].sort((a,b) => (a.order||0) - (b.order||0));
-  const shown = list.length ? list : DEFAULT_GALLERY.map((g,k) => ({id:'d'+k, ...g}));
-  $('#galleryPanel').hidden = !shown.length;
-  $('#gallery').innerHTML = shown.map(g => `<button type="button" class="g-item" data-zoom="g:${g.id}" aria-label="放大${g.caption ? ' ' + esc(g.caption) : '環境照片'}">
-    <img src="${g.src}" alt="${esc(g.caption)}" loading="lazy"><span class="g-cap">${esc(g.caption)}</span></button>`).join('');
-  if (!adminOn) return;
-  $('#galleryAdminList').innerHTML = list.length ? list.map((g,k) => `<div class="ga-row">
-    <img src="${g.src}" alt="">
-    <input class="field" data-cap="${g.id}" value="${esc(g.caption)}" placeholder="說明，例如：戲水池" aria-label="照片說明">
-    <div class="ga-tools">
-      ${k>0 ? `<button type="button" data-move="${g.id}:-1">往前</button>` : ''}
-      ${k<list.length-1 ? `<button type="button" data-move="${g.id}:1">往後</button>` : ''}
-      <button type="button" class="del" data-del="${g.id}">刪除</button>
-    </div></div>`).join('') : '<div class="empty-state">還沒有環境照片。</div>';
+  Object.entries(SECTIONS).forEach(([sec, c]) => {
+    const list = sectionList(sec);
+    const shown = list.length ? list : c.defaults.map((g,k) => ({id:c.prefix+k, ...g}));   // 還沒上傳就先用內建照片
+    if (c.panel) $(c.panel).hidden = !shown.length;
+    $(c.grid).hidden = !shown.length;
+    $(c.grid).innerHTML = shown.map(g => `<button type="button" class="g-item" data-zoom="g:${g.id}" aria-label="放大${g.caption ? ' ' + esc(g.caption) : c.label}">
+      <img src="${g.src}" alt="${esc(g.caption)}" loading="lazy"><span class="g-cap">${esc(g.caption)}</span></button>`).join('');
+    if (!adminOn) return;
+    $(c.admin).innerHTML = list.length ? list.map((g,k) => `<div class="ga-row">
+      <img src="${g.src}" alt="">
+      <input class="field" data-cap="${g.id}" value="${esc(g.caption)}" placeholder="${c.ph}" aria-label="照片說明">
+      <div class="ga-tools">
+        ${k>0 ? `<button type="button" data-move="${g.id}:-1">往前</button>` : ''}
+        ${k<list.length-1 ? `<button type="button" data-move="${g.id}:1">往後</button>` : ''}
+        <button type="button" class="del" data-del="${g.id}">刪除</button>
+      </div></div>`).join('')
+      : `<div class="empty-state">還沒有上傳${c.label}，首頁目前顯示內建的 ${c.defaults.length} 張。<br>上傳後會改成顯示你上傳的照片。</div>`;
+  });
 }
-$('#addGallery').addEventListener('click', () => {
+function uploadTo(sec){
   const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
   inp.onchange = async () => {
     const files = [...inp.files]; if (!files.length) return;
     toast(`上傳中（${files.length} 張）…`);
     let ok = 0;
-    for (const f of files){ try { await store.addGallery(await compressWide(f)); ok++; } catch (ex){ console.error(ex); } }
-    toast(ok === files.length ? '環境照片已上傳' : `有 ${files.length - ok} 張沒有上傳成功`);
+    for (const f of files){ try { await store.addGallery(await compressWide(f), sec); ok++; } catch (ex){ console.error(ex); } }
+    toast(ok === files.length ? `${SECTIONS[sec].label}已上傳` : `有 ${files.length - ok} 張沒有上傳成功`);
   };
   inp.click();
-});
-$('#galleryAdminList').addEventListener('change', async e => {
-  const c = e.target.closest('[data-cap]'); if (!c) return;
-  try { await store.updateGallery(c.dataset.cap, {caption:c.value.trim()}); toast('說明已儲存'); } catch (ex){ console.error(ex); toast('儲存失敗'); }
-});
-$('#galleryAdminList').addEventListener('click', async e => {
-  const d = e.target.closest('[data-del]'), m = e.target.closest('[data-move]');
-  if (d){
-    if (!confirm('確定要刪除這張環境照片嗎？')) return;
-    try { await store.deleteGallery(d.dataset.del); } catch (ex){ console.error(ex); toast('刪除失敗'); }
-  } else if (m){
-    const [id, dir] = m.dataset.move.split(':');
-    const list = [...galleryList].sort((a,b) => (a.order||0) - (b.order||0));
-    const i = list.findIndex(g => g.id === id), j = i + Number(dir);
-    if (j < 0 || j >= list.length) return;
-    const a = list[i], b = list[j];
-    try { await Promise.all([store.updateGallery(a.id, {order:b.order}), store.updateGallery(b.id, {order:a.order})]); }
-    catch (ex){ console.error(ex); toast('調整順序失敗'); }
-  }
+}
+$('#addGallery').addEventListener('click', () => uploadTo('env'));
+$('#addDaily').addEventListener('click', () => uploadTo('daily'));
+['#galleryAdminList', '#dailyAdminList'].forEach(sel => {
+  $(sel).addEventListener('change', async e => {
+    const c = e.target.closest('[data-cap]'); if (!c) return;
+    try { await store.updateGallery(c.dataset.cap, {caption:c.value.trim()}); toast('說明已儲存'); } catch (ex){ console.error(ex); toast('儲存失敗'); }
+  });
+  $(sel).addEventListener('click', async e => {
+    const d = e.target.closest('[data-del]'), m = e.target.closest('[data-move]');
+    if (d){
+      if (!confirm('確定要刪除這張照片嗎？')) return;
+      try { await store.deleteGallery(d.dataset.del); } catch (ex){ console.error(ex); toast('刪除失敗'); }
+    } else if (m){
+      const [id, dir] = m.dataset.move.split(':');
+      const g0 = galleryList.find(g => g.id === id); if (!g0) return;
+      const list = sectionList(sectionOf(g0));
+      const i = list.findIndex(g => g.id === id), j = i + Number(dir);
+      if (j < 0 || j >= list.length) return;
+      const a = list[i], b = list[j];
+      try { await Promise.all([store.updateGallery(a.id, {order:b.order}), store.updateGallery(b.id, {order:a.order})]); }
+      catch (ex){ console.error(ex); toast('調整順序失敗'); }
+    }
+  });
 });
 let store;
 (async () => {
