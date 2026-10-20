@@ -200,6 +200,7 @@ textarea.field{min-height:88px;resize:vertical}
 .bk-actions{display:flex;gap:14px;align-items:center;margin-top:10px}
 .confirm-btn{border:1px solid var(--brown);background:var(--brown);color:#fff;border-radius:8px;padding:5px 16px;font-size:13.5px;letter-spacing:.12em;cursor:pointer}
 .bk-actions .cancel-btn{margin-top:0}
+.edit-btn{border:1px solid var(--line);background:none;color:var(--brown);border-radius:8px;padding:5px 14px;font-size:13.5px;letter-spacing:.12em;cursor:pointer}
 .no-owner{color:var(--soft);font-size:13px}
 .admin-tools{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
 .admin-tools .seg{margin-top:0}
@@ -391,12 +392,14 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
         <button type="button" class="add-guest-btn" id="addGuestBtn">＋ 新增住客</button>
       </div>
       <form id="addGuestForm" hidden novalidate>
+        <h3 id="agTitle" style="font-size:16px;margin-top:16px">新增住客</h3>
         <div class="group">
           <span class="label">住宿日期<span class="optional">已經住進來的，入住日填實際那天</span></span>
           <div class="row2">
             <label><span class="small-label">入住</span><input type="date" class="field" id="agIn"></label>
             <label><span class="small-label">退房</span><input type="date" class="field" id="agOut"></label>
           </div>
+          <label class="check" style="margin-top:10px"><input type="checkbox" id="agLong"> 長住，還沒決定退房日</label>
         </div>
         <div class="group">
           <span class="label">寵物</span>
@@ -440,7 +443,8 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
 /* ================== 設定 ================== */
 const CONFIG = {
   waterfowlCap: 26,   // 柯爾鴨 + 鵝 每晚上限
-  adminPin: '1234',   // 後台密碼
+  adminPin: '1234',   // 後台密碼（預覽模式用）
+  keepDays: 7,        // 退房超過幾天的資料自動刪除；0 = 退房隔天就刪
   firebase: {         // Firebase 專案：duck-fc461
     apiKey: "AIzaSyDkSu1PBfykSJqhtdWhBq3_frkWKijBixI",
     authDomain: "duck-fc461.firebaseapp.com",
@@ -485,6 +489,24 @@ const wfCount = pets => pets.reduce((s,p) => s + (T[p.type]?.wf ? (Number(p.qty)
 const mask = n => { n = String(n||'').trim(); return n ? n[0] + '○○' : ''; };
 const active = b => b.status !== 'canceled';
 const isPending = b => b.status === 'pending';
+const LONG = '9999-12-31';                 // 長住：還沒決定退房日
+const isLong = b => b.checkOut === LONG;
+const rangeText = b => isLong(b) ? `${md(b.checkIn)} 起・長住` : `${md(b.checkIn)} – ${md(b.checkOut)}`;
+// 長住的鴨鴨從入住日起每天都佔位子，所以檢查到「最晚一筆有退房日的預約」為止
+function checkLongFits(checkIn, wf, exceptId){
+  if (!wf) return;
+  const list = publicList.filter(b => b.id !== exceptId);
+  const ends = list.filter(b => active(b) && !isLong(b)).map(b => b.checkOut);
+  const last = ends.reduce((m, x) => x > m ? x : m, addDays(checkIn, 1));
+  for (const d of nightsOf(checkIn, last)) if (occupancyOn(d, list) + wf > CAP) throw new FullError(d);
+}
+function checkRangeFits(checkIn, checkOut, wf, exceptId){
+  if (!wf) return;
+  const list = publicList.filter(b => b.id !== exceptId);
+  for (const d of nightsOf(checkIn, checkOut)) if (occupancyOn(d, list) + wf > CAP) throw new FullError(d);
+}
+const longOn = (map, d) => Object.values(map || {}).reduce((s, e) =>
+  s + (e && e.from && e.from <= d && (!e.until || d < e.until) ? (e.wf||0) : 0), 0);
 const petText = p => `${esc(p.name)}<span style="color:var(--soft)">・${T[p.type]?.label||'寵物'}${p.qty>1 ? ` ${p.qty} 隻` : ''}</span>`;
 
 function toast(msg){
@@ -495,7 +517,7 @@ class FullError extends Error { constructor(date){ super('full'); this.date = da
 
 function splitDoc(d, status = 'pending'){
   const pets = d.pets.map(p => ({type:p.type, name:p.name.trim(), qty:Number(p.qty)||1, photo:p.photo||''}));
-  const base = {checkIn:d.checkIn, checkOut:d.checkOut, pets, waterfowl:wfCount(pets), status, createdAt:Date.now()};
+  const base = {checkIn:d.checkIn, checkOut:d.checkOut, pets, waterfowl:wfCount(pets), status, createdAt:Date.now(), ...(d.longStay ? {longStay:true} : {})};
   return {
     pub:  {...base},
     priv: {...base, ownerName:(d.ownerName||'').trim(), contact:(d.contact||'').trim(), notes:(d.notes||'').trim()}
@@ -536,9 +558,24 @@ function makeDemoStore(){
     async deleteGallery(id){ const i = gal.findIndex(x => x.id === id); if (i >= 0) gal.splice(i, 1); emitG(); },
     async create(data, status = 'pending'){
       const wf = wfCount(data.pets);
-      if (wf > 0) for (const d of nightsOf(data.checkIn, data.checkOut))
+      if (data.longStay) checkLongFits(data.checkIn, wf);
+      else if (wf > 0) for (const d of nightsOf(data.checkIn, data.checkOut))
         if (occupancyOn(d, pub) + wf > CAP) throw new FullError(d);
       add(data, status); emit();
+    },
+    async endStay(b, date){ [pub, priv].forEach(arr => { const x = arr.find(y => y.id === b.id); if (x) x.checkOut = date; }); emit(); },
+    async update(b, data){
+      const {pub:p, priv:v} = splitDoc(data, b.status);
+      if (data.longStay) checkLongFits(data.checkIn, p.waterfowl, b.id); else checkRangeFits(data.checkIn, data.checkOut, p.waterfowl, b.id);
+      const keep = {status:b.status, createdAt:b.createdAt, longStay:!!data.longStay};
+      const x = pub.find(y => y.id === b.id), y = priv.find(z => z.id === b.id);
+      if (x) Object.assign(x, p, keep); if (y) Object.assign(y, v, keep);
+      emit();
+    },
+    async cleanup(cutoff){
+      let n = 0;
+      [pub, priv].forEach((arr, k) => { for (let i = arr.length - 1; i >= 0; i--) if (arr[i].checkOut < cutoff){ arr.splice(i, 1); if (k === 1) n++; } });
+      if (n) emit(); return n;
     },
     async confirm(id){ [pub, priv].forEach(arr => { const x = arr.find(b => b.id === id); if (x && x.status === 'pending') x.status = 'confirmed'; }); emit(); },
     async cancel(id){ [pub, priv].forEach(arr => { const x = arr.find(b => b.id === id); if (x) x.status = 'canceled'; }); emit(); },
@@ -559,6 +596,7 @@ async function makeFirebaseStore(cfg){
     db = fs.initializeFirestore(fbApp, {localCache: fs.persistentLocalCache({tabManager: fs.persistentMultipleTabManager()})});
   } catch { db = fs.getFirestore(fbApp); }
   const auth = au.getAuth(fbApp);
+  const lsRef = fs.doc(db, 'duck_longstay', 'all');
   const since = addDays(today(), -60);
   const sub = (col, f) => fs.onSnapshot(
     fs.query(fs.collection(db, col), fs.where('checkOut', '>=', since)),
@@ -576,6 +614,59 @@ async function makeFirebaseStore(cfg){
     addGallery: src => fs.addDoc(fs.collection(db, 'duck_gallery'), {src, caption:'', order:Date.now()}),
     updateGallery: (id, patch) => fs.updateDoc(fs.doc(db, 'duck_gallery', id), patch),
     deleteGallery: id => fs.deleteDoc(fs.doc(db, 'duck_gallery', id)),
+    async cleanup(cutoff){
+      // 找出退房日早於 cutoff 的預約與每晚數量，分批刪除（每批最多 400 筆）
+      const old = (col, field) => fs.getDocs(fs.query(fs.collection(db, col), fs.where(field, '<', cutoff)));
+      const [bk, pb, cap] = await Promise.all([
+        old('duck_bookings', 'checkOut'), old('duck_public', 'checkOut'), old('duck_capacity', fs.documentId())
+      ]);
+      const refs = [...bk.docs, ...pb.docs, ...cap.docs].map(d => d.ref);
+      for (let i = 0; i < refs.length; i += 400){
+        const batch = fs.writeBatch(db);
+        refs.slice(i, i + 400).forEach(r => batch.delete(r));
+        await batch.commit();
+      }
+      // 已經退房很久的長住紀錄也一併清掉
+      const ls = await fs.getDoc(lsRef);
+      if (ls.exists()){
+        const gone = Object.entries(ls.data()).filter(([, e]) => !e || !e.from || (e.until && e.until < cutoff)).map(([k]) => k);
+        if (gone.length) await fs.updateDoc(lsRef, Object.fromEntries(gone.map(k => [k, fs.deleteField()])));
+      }
+      return bk.size;
+    },
+    async update(b, data){
+      const {pub:p, priv:v} = splitDoc(data, b.status);
+      const newWf = p.waterfowl, oldWf = b.waterfowl || 0;
+      const newLong = !!data.longStay, oldInMap = !!b.longStay;
+      if (newLong) checkLongFits(data.checkIn, newWf, b.id);
+      const oldNights = oldInMap || oldWf === 0 ? [] : nightsOf(b.checkIn, b.checkOut);
+      const newNights = newLong || newWf === 0 ? [] : nightsOf(data.checkIn, data.checkOut);
+      const all = [...new Set([...oldNights, ...newNights])].sort();
+      const oldSet = new Set(oldNights), newSet = new Set(newNights);
+      const keep = {status:b.status, createdAt:b.createdAt, longStay:newLong};
+      await fs.runTransaction(db, async tx => {
+        const refs = all.map(d => fs.doc(db, 'duck_capacity', d));
+        const lsSnap = await tx.get(lsRef);
+        const lsMap = lsSnap.exists() ? {...lsSnap.data()} : {};
+        delete lsMap[b.id];                       // 不算自己
+        const counts = [];
+        for (const r of refs){ const c = await tx.get(r); counts.push(c.exists() ? (c.data().count||0) : 0); }
+        const next = counts.map((c,i) => Math.max(0, c - (oldSet.has(all[i]) ? oldWf : 0)) + (newSet.has(all[i]) ? newWf : 0));
+        next.forEach((c,i) => { if (newSet.has(all[i]) && c + longOn(lsMap, all[i]) > CAP) throw new FullError(all[i]); });
+        refs.forEach((r,i) => tx.set(r, {count: next[i]}, {merge:true}));
+        if (oldInMap && !(newLong && newWf > 0)) tx.set(lsRef, {[b.id]: fs.deleteField()}, {merge:true});
+        if (newLong && newWf > 0) tx.set(lsRef, {[b.id]: {from:data.checkIn, until:null, wf:newWf}}, {merge:true});
+        tx.update(fs.doc(db, 'duck_public', b.id), {...p, ...keep});
+        tx.update(fs.doc(db, 'duck_bookings', b.id), {...v, ...keep});
+      });
+    },
+    async endStay(b, date){   // 長住設定退房日
+      const batch = fs.writeBatch(db);
+      batch.update(fs.doc(db, 'duck_public', b.id), {checkOut:date});
+      batch.update(fs.doc(db, 'duck_bookings', b.id), {checkOut:date});
+      if (b.waterfowl > 0) batch.set(lsRef, {[b.id]: {until:date}}, {merge:true});
+      await batch.commit();
+    },
     async confirm(id){
       const batch = fs.writeBatch(db);
       batch.update(fs.doc(db, 'duck_public', id), {status:'confirmed'});
@@ -584,12 +675,24 @@ async function makeFirebaseStore(cfg){
     },
     async create(data, status = 'pending'){
       const {pub, priv} = splitDoc(data, status);
+      if (data.longStay){   // 長住只有館方能新增：檢查後直接寫入，並登記在長住名單
+        checkLongFits(data.checkIn, pub.waterfowl);
+        const pRef = fs.doc(fs.collection(db, 'duck_public'));
+        const batch = fs.writeBatch(db);
+        batch.set(pRef, pub);
+        batch.set(fs.doc(db, 'duck_bookings', pRef.id), priv);
+        if (pub.waterfowl > 0) batch.set(lsRef, {[pRef.id]: {from:data.checkIn, until:null, wf:pub.waterfowl}}, {merge:true});
+        await batch.commit();
+        return;
+      }
       const nights = nightsOf(data.checkIn, data.checkOut);
       await fs.runTransaction(db, async tx => {
         const refs = pub.waterfowl > 0 ? nights.map(d => fs.doc(db, 'duck_capacity', d)) : [];
+        const lsSnap = pub.waterfowl > 0 ? await tx.get(lsRef) : null;
+        const lsMap = lsSnap && lsSnap.exists() ? lsSnap.data() : {};
         const counts = [];
         for (const r of refs){ const s = await tx.get(r); counts.push(s.exists() ? (s.data().count||0) : 0); }
-        counts.forEach((c,i) => { if (c + pub.waterfowl > CAP) throw new FullError(nights[i]); });
+        counts.forEach((c,i) => { if (c + longOn(lsMap, nights[i]) + pub.waterfowl > CAP) throw new FullError(nights[i]); });
         refs.forEach((r,i) => tx.set(r, {count: counts[i] + pub.waterfowl}, {merge:true}));
         const pRef = fs.doc(fs.collection(db, 'duck_public'));
         tx.set(pRef, pub);
@@ -609,6 +712,12 @@ async function makeFirebaseStore(cfg){
         const s = await tx.get(pRef);
         if (!s.exists() || s.data().status === 'canceled') return;
         const b = s.data();
+        if (b.longStay){
+          tx.update(pRef, {status:'canceled'});
+          tx.update(fs.doc(db, 'duck_bookings', id), {status:'canceled'});
+          if (b.waterfowl > 0) tx.set(lsRef, {[id]: fs.deleteField()}, {merge:true});
+          return;
+        }
         const refs = b.waterfowl > 0 ? nightsOf(b.checkIn, b.checkOut).map(d => fs.doc(db, 'duck_capacity', d)) : [];
         const counts = [];
         for (const r of refs){ const c = await tx.get(r); counts.push(c.exists() ? (c.data().count||0) : 0); }
@@ -682,12 +791,13 @@ function renderDay(){
   $('#guestList').innerHTML = (conf.length || pend.length) ? conf.map(b => {
     const tag = b.checkOut === d ? '<span class="badge out">退房</span>'
               : b.checkIn === d ? '<span class="badge in">入住</span>'
+              : isLong(b) ? '<span class="badge stay">長住</span>'
               : '<span class="badge stay">續住中</span>';
     return `<div class="guest">
       ${avatarsHtml(b)}
       <div>
         <div class="names">${b.pets.map(p => esc(p.name) + (p.qty>1 ? ` ×${p.qty}` : '')).join('、')}${tag}</div>
-        <div class="meta">${md(b.checkIn)} – ${md(b.checkOut)}</div>
+        <div class="meta">${rangeText(b)}</div>
       </div></div>`;
   }).join('') + holdRow : `<div class="empty-state">這天還沒有住客。</div>`;
 
@@ -937,6 +1047,14 @@ function enterAdmin(){
   $('#pinInput').value = ''; $('#pinErr').textContent = '';
   renderGallery();
   unsubPrivate = store.subscribePrivate(l => { privateList = l; renderAdmin(); });
+  autoCleanup();
+}
+let cleaned = false;
+async function autoCleanup(){
+  if (cleaned) return; cleaned = true;
+  const cutoff = addDays(today(), -Math.max(0, CONFIG.keepDays));
+  try { const n = await store.cleanup(cutoff); if (n) toast(`已自動清除 ${n} 筆退房超過 ${CONFIG.keepDays} 天的資料`); }
+  catch (ex){ console.error(ex); cleaned = false; }
 }
 function leaveAdmin(){
   adminOn = false; if (typeof unsubPrivate === 'function') unsubPrivate(); unsubPrivate = null; privateList = [];
@@ -953,23 +1071,62 @@ $('#pinForm').addEventListener('submit', async e => {
 });
 $('#logoutBtn').addEventListener('click', () => store.logout());
 
+/* ---------- 後台：長住設定退房日 ---------- */
+function openEndStay(b){
+  const min = addDays(b.checkIn, 1), def = today() > b.checkIn ? today() : min;
+  const o = $('#overlay');
+  o.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="esTitle">
+    <h3 id="esTitle">設定退房日</h3>
+    <p class="hint">${b.pets.map(p => esc(p.name)).join('、')}・${md(b.checkIn)} 入住</p>
+    <input type="date" class="field" id="esDate" min="${min}" value="${def}" style="margin-top:14px">
+    <div class="err" id="esErr" role="alert"></div>
+    <button class="btn" id="esOk">確定退房日</button>
+    <button type="button" class="link-btn" id="esCancel" style="display:block;margin:10px auto 0">取消</button></div>`;
+  o.hidden = false; $('#esDate').focus();
+  $('#esCancel').onclick = () => o.hidden = true;
+  $('#esOk').onclick = async () => {
+    const d = $('#esDate').value;
+    if (!d || d <= b.checkIn){ $('#esErr').textContent = '退房日要在入住日之後。'; return; }
+    $('#esOk').disabled = true;
+    try { await store.endStay(b, d); o.hidden = true; toast(`已設定 ${md(d)} 退房`); }
+    catch (ex){ console.error(ex); $('#esErr').textContent = '設定失敗，請再試一次。'; $('#esOk').disabled = false; }
+  };
+}
+
 /* ---------- 後台：新增住客（直接確認，主人資料選填） ---------- */
-function openAddGuest(show){
+let editing = null;   // 正在編輯的那筆預約；null = 新增
+function setLongUI(on){ $('#agLong').checked = on; $('#agOut').disabled = on; $('#agOut').closest('label').style.opacity = on ? .4 : 1; }
+function openAddGuest(show, b = null){
+  editing = show ? b : null;
   $('#addGuestForm').hidden = !show;
   $('#addGuestBtn').hidden = show;
-  if (show){
-    $('#addGuestForm').reset(); $('#agErr').textContent = '';
+  if (!show) return;
+  $('#addGuestForm').reset(); $('#agErr').textContent = '';
+  $('#agTitle').textContent = b ? '編輯預約' : '新增住客';
+  $('#agSubmit').textContent = b ? '儲存修改' : '新增（直接確認）';
+  if (b){
+    $('#agIn').value = b.checkIn;
+    $('#agOut').value = isLong(b) ? addDays(b.checkIn > today() ? b.checkIn : today(), 1) : b.checkOut;
+    setLongUI(isLong(b));
+    $('#agOwner').value = b.ownerName || ''; $('#agContact').value = b.contact || ''; $('#agNotes').value = b.notes || '';
+    agEd.pets = b.pets.map(p => ({type:p.type, name:p.name, qty:p.qty, photo:p.photo||''}));
+  } else {
     $('#agIn').value = today(); $('#agOut').value = addDays(today(), 1);
-    agEd.pets = [{type:'duck', name:'', qty:1, photo:''}]; agEd.render();
+    setLongUI(false);
+    agEd.pets = [{type:'duck', name:'', qty:1, photo:''}];
   }
+  agEd.render();
+  $('#addGuestForm').scrollIntoView({behavior:'smooth', block:'start'});
 }
 $('#addGuestBtn').addEventListener('click', () => openAddGuest(true));
 $('#agCancel').addEventListener('click', () => openAddGuest(false));
 $('#agIn').addEventListener('change', () => { const a = $('#agIn').value; if (a && $('#agOut').value <= a) $('#agOut').value = addDays(a, 1); });
+$('#agLong').addEventListener('change', e => setLongUI(e.target.checked));
 $('#addGuestForm').addEventListener('submit', async e => {
   e.preventDefault();
   const err = $('#agErr'); err.textContent = '';
-  const data = { checkIn:$('#agIn').value, checkOut:$('#agOut').value, ownerName:$('#agOwner').value,
+  const long = $('#agLong').checked;
+  const data = { checkIn:$('#agIn').value, checkOut: long ? LONG : $('#agOut').value, longStay: long, ownerName:$('#agOwner').value,
                  contact:$('#agContact').value, notes:$('#agNotes').value, pets:agEd.pets.map(p => ({...p})) };
   let msg = '';
   if (!data.checkIn || !data.checkOut) msg = '請選入住和退房日期。';
@@ -978,14 +1135,21 @@ $('#addGuestForm').addEventListener('submit', async e => {
   if (msg){ err.textContent = msg; return; }
   const btn = $('#agSubmit'); btn.disabled = true;
   try {
-    await store.create(data, 'confirmed');
-    toast('已新增住客'); openAddGuest(false);
-    adminFilter = 'upcoming';
-    $('#adminFilter').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x.dataset.f === 'upcoming'));
-    renderAdmin();
+    if (editing){
+      await store.update(editing, data);
+      toast('已儲存修改'); openAddGuest(false);
+    } else {
+      await store.create(data, 'confirmed');
+      toast('已新增住客'); openAddGuest(false);
+      adminFilter = 'upcoming';
+      $('#adminFilter').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x.dataset.f === 'upcoming'));
+      renderAdmin();
+    }
   } catch (ex){
     console.error(ex);
-    err.textContent = ex instanceof FullError ? `${md(ex.date)} 鴨鵝已經滿 ${CAP} 隻了，請確認數量或日期。` : '新增失敗，請再試一次。';
+    err.textContent = ex instanceof FullError
+      ? (long ? `${md(ex.date)} 那天鴨鵝會超過 ${CAP} 隻（已有其他預約），請確認數量或入住日。` : `${md(ex.date)} 鴨鵝已經滿 ${CAP} 隻了，請確認數量或日期。`)
+      : (editing ? '儲存失敗，請再試一次。' : '新增失敗，請再試一次。');
   } finally { btn.disabled = false; }
 });
 $('#adminFilter').addEventListener('click', e => {
@@ -1011,15 +1175,17 @@ function renderAdmin(){
   $('#adminList').innerHTML = list.length ? list.map(b => {
     const stTxt = !active(b) ? '<span class="hint">已取消</span>'
       : isPending(b) ? `<span class="st-pending">待確認・${nightsOf(b.checkIn,b.checkOut).length} 晚</span>`
+      : isLong(b) ? `<span class="st-ok">長住・${b.checkIn <= today() ? `第 ${Math.round((parse(today()) - parse(b.checkIn)) / 864e5) + 1} 天` : '尚未入住'}</span>`
       : `<span class="st-ok">已確認・${nightsOf(b.checkIn,b.checkOut).length} 晚</span>`;
     const owner = (b.ownerName || b.contact)
       ? `<p><span class="bk-owner">${esc(b.ownerName||'')}</span>　${b.contact ? contactHtml(b.contact) : ''}</p>`
       : `<p class="no-owner">未填主人資料</p>`;
     const actions = !active(b) ? ''
-      : isPending(b) ? `<div class="bk-actions"><button class="confirm-btn" data-confirm="${b.id}">確認預約</button><button class="cancel-btn" data-cancel="${b.id}">婉拒／取消</button></div>`
-      : `<div class="bk-actions"><button class="cancel-btn" data-cancel="${b.id}">取消這筆預約</button></div>`;
+      : isPending(b) ? `<div class="bk-actions"><button class="confirm-btn" data-confirm="${b.id}">確認預約</button><button class="edit-btn" data-edit="${b.id}">編輯</button><button class="cancel-btn" data-cancel="${b.id}">婉拒／取消</button></div>`
+      : isLong(b) ? `<div class="bk-actions"><button class="confirm-btn" data-endstay="${b.id}">設定退房日</button><button class="edit-btn" data-edit="${b.id}">編輯</button><button class="cancel-btn" data-cancel="${b.id}">刪除這筆</button></div>`
+      : `<div class="bk-actions"><button class="edit-btn" data-edit="${b.id}">編輯</button><button class="cancel-btn" data-cancel="${b.id}">取消這筆預約</button></div>`;
     return `<div class="bk ${!active(b) ? 'canceled' : isPending(b) ? 'pending' : ''}">
-      <div class="bk-top"><span class="bk-dates">${md(b.checkIn)} – ${md(b.checkOut)}</span>${stTxt}</div>
+      <div class="bk-top"><span class="bk-dates">${rangeText(b)}</span>${stTxt}</div>
       ${owner}
       <div class="bk-pets">${b.pets.map((p,i) => `<div class="bk-pet">${active(b) ? `<button type="button" class="photo-pick ${p.photo?'has':''}" data-setphoto="${b.id}:${i}" aria-label="${p.photo?'更換':'加入'} ${esc(p.name)} 的頭貼">${p.photo ? `<img src="${p.photo}" alt="">` : '加<br>頭貼'}</button>` : ''}<span>${petText(p)}</span></div>`).join('')}</div>
       ${b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
@@ -1028,6 +1194,10 @@ function renderAdmin(){
   }).join('') : `<div class="empty-state">${empty}</div>`;
 }
 $('#adminList').addEventListener('click', async e => {
+  const ed = e.target.closest('[data-edit]');
+  if (ed){ const b = privateList.find(x => x.id === ed.dataset.edit); if (b) openAddGuest(true, b); return; }
+  const es = e.target.closest('[data-endstay]');
+  if (es){ const b = privateList.find(x => x.id === es.dataset.endstay); if (b) openEndStay(b); return; }
   const sp = e.target.closest('[data-setphoto]');
   if (sp){
     const [id, i] = sp.dataset.setphoto.split(':'); const url = await pickPhoto(); if (!url) return;
