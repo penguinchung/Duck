@@ -216,6 +216,13 @@ textarea.field{min-height:88px;resize:vertical}
 #addGuestForm{border-top:1px solid var(--line-soft);margin-top:16px;padding-top:4px}
 .optional{color:var(--soft);font-weight:400;font-size:12px;margin-left:6px}
 
+/* ---------- 鴨鴨日常 ---------- */
+.daily-video{position:relative;margin-top:16px;border-radius:12px;overflow:hidden;background:var(--tint);aspect-ratio:4/5}
+.daily-video video{width:100%;height:100%;object-fit:cover;display:block}
+.vid-toggle{position:absolute;right:10px;bottom:10px;border:0;border-radius:999px;background:rgba(63,51,43,.55);color:#fff;font-size:12px;letter-spacing:.1em;padding:4px 12px;cursor:pointer;backdrop-filter:blur(4px)}
+#daily{margin-top:12px}
+#daily .g-item{flex-basis:62%}
+
 /* ---------- 館內環境 ---------- */
 .gallery{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;margin:16px -20px 0;padding:0 20px 4px;scroll-padding:0 20px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
 .gallery::-webkit-scrollbar{display:none}
@@ -319,6 +326,15 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
         <span><i style="background:var(--low-bg);border:1px solid #E4C597"></i>快額滿（剩 <span class="lowN"></span> 位以下）</span>
         <span><i style="background:var(--full-bg);border:1px solid #DDB1A6"></i>額滿</span>
       </div>
+    </section>
+
+    <section class="panel" id="dailyPanel">
+      <h2>鴨鴨日常</h2>
+      <div class="daily-video">
+        <video src="images/duck-pool.mp4" poster="images/duck-pool-poster.jpg" muted loop playsinline preload="metadata" aria-label="鴨鴨在戲水池游泳的影片"></video>
+        <button type="button" class="vid-toggle" id="vidToggle" aria-label="暫停影片">暫停</button>
+      </div>
+      <div class="gallery" id="daily"></div>
     </section>
 
     <section class="panel" id="galleryPanel" hidden>
@@ -479,6 +495,11 @@ const CONFIG = {
 };
 
 /* 內建環境照片：雲端還沒上傳任何環境照時，首頁先顯示這些 */
+const DAILY = [
+  {caption:'在草皮墊上散步', src:'images/duo.jpg'},
+  {caption:'窗邊打盹', src:'images/nap.jpg'},
+  {caption:'下過雨就去踩水窪', src:'images/puddle.jpg'}
+];
 const DEFAULT_GALLERY = [
   {caption:'室內住宿空間：獨立玻璃隔間', src:'images/room1.jpg'},
   {caption:'每間都有水盆和草皮墊', src:'images/room2.jpg'},
@@ -944,7 +965,7 @@ document.addEventListener('click', e => {
   const o = $('#overlay');
   if (z.dataset.zoom.startsWith('g:')){
     const gid = z.dataset.zoom.slice(2);
-    const g = galleryList.find(x => x.id === gid) || (gid[0]==='d' && {...DEFAULT_GALLERY[gid.slice(1)]}); if (!g || !g.src) return;
+    const g = galleryList.find(x => x.id === gid) || (gid[0]==='d' && {...DEFAULT_GALLERY[gid.slice(1)]}) || (gid[0]==='y' && {...DAILY[gid.slice(1)]}); if (!g || !g.src) return;
     o.innerHTML = `<div class="sheet wide" role="dialog" aria-modal="true" aria-label="環境照片"><img class="big-photo wide" src="${g.src}" alt="${esc(g.caption)}">${g.caption ? `<p class="hint" style="margin-top:8px">${esc(g.caption)}</p>` : ''}<button class="btn" id="zoomClose">關閉</button></div>`;
     o.hidden = false; $('#zoomClose').focus(); $('#zoomClose').onclick = () => o.hidden = true; return;
   }
@@ -1320,6 +1341,25 @@ function renderAll(){ renderDay(); renderCal(); updateAvail(); }
 
 /* ================== 館內環境 ================== */
 let galleryList = [];
+/* ---------- 鴨鴨日常：影片在畫面裡才播放，省流量 ---------- */
+function setupDaily(){
+  $('#daily').innerHTML = DAILY.map((g,k) => `<button type="button" class="g-item" data-zoom="g:y${k}" aria-label="放大 ${esc(g.caption)}">
+    <img src="${g.src}" alt="${esc(g.caption)}" loading="lazy"><span class="g-cap">${esc(g.caption)}</span></button>`).join('');
+  const v = $('#dailyPanel video'), btn = $('#vidToggle');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let userPaused = reduce;
+  const sync = () => { btn.textContent = v.paused ? '播放' : '暫停'; btn.setAttribute('aria-label', v.paused ? '播放影片' : '暫停影片'); };
+  v.addEventListener('play', sync); v.addEventListener('pause', sync);
+  btn.addEventListener('click', () => { if (v.paused){ userPaused = false; v.play().catch(() => {}); } else { userPaused = true; v.pause(); } });
+  if ('IntersectionObserver' in window){
+    new IntersectionObserver(es => es.forEach(en => {
+      if (en.isIntersecting && !userPaused) v.play().catch(() => {}); else if (!en.isIntersecting) v.pause();
+    }), {threshold:.4}).observe(v);
+  }
+  sync();
+}
+setupDaily();
+
 function renderGallery(){
   const list = [...galleryList].sort((a,b) => (a.order||0) - (b.order||0));
   const shown = list.length ? list : DEFAULT_GALLERY.map((g,k) => ({id:'d'+k, ...g}));
