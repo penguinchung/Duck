@@ -188,11 +188,20 @@ textarea.field{min-height:88px;resize:vertical}
 .bk-pet .photo-pick{width:38px;height:38px}
 .cancel-btn{border:0;background:none;color:var(--full);cursor:pointer;font-size:12.5px;text-decoration:underline;text-underline-offset:3px;padding:4px 0;margin-top:6px}
 
+/* ---------- 假日 ---------- */
+.cell.hol .num{color:var(--full)}
+.cell.hol:not(.low):not(.full) .st{color:var(--full);font-weight:400}
+.cell.hol.past .num{color:#D9B3A9}
+.hol-tag{display:inline-block;margin-left:8px;font-size:12px;color:var(--full);border:1px solid #E7C3B8;border-radius:999px;padding:0 8px;vertical-align:3px;letter-spacing:.06em;font-family:var(--sans);font-weight:400}
+.legend .red{color:var(--full);font-weight:500;margin-right:4px}
+.cny-note{margin-top:6px;font-size:13px;color:var(--full)}
+
 /* ---------- 預約須知 ---------- */
 .notice{margin-top:22px;background:var(--tint);border-radius:12px;padding:16px 16px 14px}
 .notice h3{font-size:15px;color:var(--cocoa);letter-spacing:.12em}
 .notice ul{margin:8px 0 0;padding-left:1.2em;font-size:13.5px;color:var(--soft);line-height:1.8}
 .notice li + li{margin-top:4px}
+.notice .mark{color:var(--full);font-weight:700}
 .notice .agree{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);color:var(--cocoa);font-size:14px}
 .notice.need{box-shadow:0 0 0 1px var(--full)}
 
@@ -325,6 +334,7 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
       <div class="legend">
         <span><i style="background:var(--low-bg);border:1px solid #E4C597"></i>快額滿（剩 <span class="lowN"></span> 位以下）</span>
         <span><i style="background:var(--full-bg);border:1px solid #DDB1A6"></i>額滿</span>
+        <span><span class="red">紅字</span>國定假日、連假</span>
       </div>
     </section>
 
@@ -384,8 +394,10 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
         <h3>預約須知</h3>
         <ul>
           <li>預訂住宿後需付款，付款完成後，待館方確認才算預訂成功。</li>
-          <li>連假及過年期間請提前預訂。</li>
+          <li>連假期間寄宿的鴨鴨較多，請提前預訂。</li>
+          <li>過年期間固定於 <strong class="mark">12 月</strong>開放預訂，期間會加收 10% 服務費。</li>
           <li>寵物有特定習慣或需要注意的地方，請先在備註完整註記。</li>
+          <li>館內是多隻鴨鴨一起寄宿、統一照顧，無法為單一寶貝安排一對一看護。若寶貝需要獨立照顧或特別看管，請先評估是否適合寄宿。</li>
           <li>寵物若有生病，或現場評估後不適合寄宿，館方保有拒絕寄宿的權利。</li>
         </ul>
         <label class="check agree"><input type="checkbox" id="agreeNotice"> 我已閱讀並同意預約須知</label>
@@ -481,6 +493,8 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
 
 <div id="overlay" class="overlay" hidden></div>
 <div id="toast" class="toast" hidden role="status"></div>
+<input type="file" id="pickMany" accept="image/*" multiple hidden>
+<input type="file" id="pickOne" accept="image/*" hidden>
 
 <script type="module">
 
@@ -512,6 +526,39 @@ const DEFAULT_GALLERY = [
   {caption:'戶外草地與溜滑梯', src:'images/yard.jpg'},
   {caption:'戲水池', src:'images/pool.jpg'}
 ];
+
+/* 國定假日與連假（依行政院人事行政總處公告的辦公日曆表）
+   每年人事總處公布隔年行事曆後（通常 5、6 月），照同樣格式加上隔年的資料即可。
+   cny: 過年期間，open 那天才開放預約，這段期間每晚加收 CNY_FEE。 */
+const HOLIDAYS = [
+  {name:'國慶日連假',     short:'國慶', from:'2026-10-09', to:'2026-10-11'},
+  {name:'光復節連假',     short:'光復', from:'2026-10-24', to:'2026-10-26'},
+  {name:'行憲紀念日連假', short:'行憲', from:'2026-12-25', to:'2026-12-27'},
+  {name:'元旦連假',       short:'元旦', from:'2027-01-01', to:'2027-01-03'},
+  {name:'春節',           short:'春節', from:'2027-02-04', to:'2027-02-10', cny:true, open:'2026-12-01'},
+  {name:'228 連假',       short:'228',  from:'2027-02-27', to:'2027-03-01'},
+  {name:'清明連假',       short:'清明', from:'2027-04-03', to:'2027-04-06'},
+  {name:'勞動節連假',     short:'勞動', from:'2027-04-30', to:'2027-05-02'},
+  {name:'端午節',         short:'端午', from:'2027-06-09', to:'2027-06-09'},
+  {name:'中秋節',         short:'中秋', from:'2027-09-15', to:'2027-09-15'},
+  {name:'教師節',         short:'教師', from:'2027-09-28', to:'2027-09-28'},
+  {name:'國慶日連假',     short:'國慶', from:'2027-10-09', to:'2027-10-11'},
+  {name:'光復節連假',     short:'光復', from:'2027-10-23', to:'2027-10-25'},
+  {name:'行憲紀念日連假', short:'行憲', from:'2027-12-24', to:'2027-12-26'},
+  {name:'元旦連假',       short:'元旦', from:'2027-12-31', to:'2028-01-02'}
+];
+const CNY_FEE = '10%';
+const holidayOn = d => HOLIDAYS.find(h => h.from <= d && d <= h.to);
+const cnyNightsIn = (a, b) => (!a || !b || b <= a || b === '9999-12-31') ? 0
+  : nightsOf(a, b).filter(d => holidayOn(d)?.cny).length;
+// 過年還沒開放預約：回傳那段過年，否則 null
+const cnyLocked = (a, b) => {
+  if (!a || !b || b <= a) return null;
+  const t = today();
+  for (const d of nightsOf(a, b)){ const h = holidayOn(d); if (h?.cny && t < h.open) return h; }
+  return null;
+};
+const fmtYMD = s => { const [y,m,dd] = s.split('-').map(Number); return `${y}/${m}/${dd}`; };
 
 const TYPES = [
   {key:'duck',  label:'柯爾鴨', emoji:'🦆', wf:true},
@@ -567,7 +614,7 @@ class FullError extends Error { constructor(date){ super('full'); this.date = da
 
 function splitDoc(d, status = 'pending'){
   const pets = d.pets.map(p => ({type:p.type, name:p.name.trim(), qty:Number(p.qty)||1, photo:p.photo||''}));
-  const base = {checkIn:d.checkIn, checkOut:d.checkOut, pets, waterfowl:wfCount(pets), status, createdAt:Date.now(), ...(d.longStay ? {longStay:true} : {})};
+  const base = {checkIn:d.checkIn, checkOut:d.checkOut, pets, waterfowl:wfCount(pets), status, createdAt:Date.now(), ...(d.longStay ? {longStay:true} : {}), cnyNights: cnyNightsIn(d.checkIn, d.checkOut)};
   return {
     pub:  {...base},
     priv: {...base, ownerName:(d.ownerName||'').trim(), contact:(d.contact||'').trim(), notes:(d.notes||'').trim()}
@@ -810,10 +857,12 @@ let selDate = today();
 let loaded = false;
 function renderDay(){
   const d = selDate, occ = occupancyOn(d), left = CAP - occ, lv = levelOf(left);
-  $('#dayTitle').textContent = d === today() ? '今天的鴨鴨' : `${md(d)}的鴨鴨`;
+  const h = holidayOn(d), locked = h?.cny && today() < h.open && d >= today();
+  $('#dayTitle').innerHTML = esc(d === today() ? '今天的鴨鴨' : `${md(d)}的鴨鴨`) + (h ? `<span class="hol-tag">${esc(h.name)}</span>` : '');
   const st = $('#dayStatus');
   st.className = 'status ' + lv;
-  st.textContent = !loaded ? '讀取中…' : d < today() ? '已過去的日期' : lv === 'full' ? '已額滿' : lv === 'low' ? `快額滿，剩 ${left} 位` : `還有 ${left} 位`;
+  st.textContent = !loaded ? '讀取中…' : d < today() ? '已過去的日期' : lv === 'full' ? '已額滿'
+    : locked ? `${fmtYMD(h.open)} 開放預訂` : lv === 'low' ? `快額滿，剩 ${left} 位` : `還有 ${left} 位`;
   const hold = publicList.filter(b => isPending(b) && b.checkIn <= d && d < b.checkOut).reduce((s,b) => s + (b.waterfowl||0), 0);
   $('#dayCount').innerHTML = `${occ}<small>/ ${CAP} 隻鴨鵝${hold ? `・其中 ${hold} 位保留中` : ''}</small>`;
   const fill = $('#meterFill');
@@ -851,7 +900,7 @@ function renderDay(){
       </div></div>`;
   }).join('') + holdRow : `<div class="empty-state">這天還沒有住客。</div>`;
 
-  $('#bookThisDay').hidden = d < today() || lv === 'full';
+  $('#bookThisDay').hidden = d < today() || lv === 'full' || locked;
   if (!loaded) $('#guestList').innerHTML = '';
 }
 
@@ -870,9 +919,10 @@ function renderCal(){
     const d = `${calMonth}-${pad(i)}`;
     const left = leftOn(d), past = d < t;
     const lv = past ? 'past' : levelOf(left);
-    const st = (past || !loaded) ? '' : lv === 'full' ? '額滿' : lv === 'low' ? `剩${left}` : '';
-    const label = `${m}月${i}日` + (past ? '' : lv === 'full' ? '，已額滿' : `，剩 ${left} 位`);
-    html += `<button type="button" class="cell ${lv} ${d===t?'today':''} ${d===selDate?'sel':''}" data-d="${d}" aria-label="${label}" aria-pressed="${d===selDate}">
+    const h = holidayOn(d);
+    const st = (!past && loaded && lv === 'full') ? '額滿' : (!past && loaded && lv === 'low') ? `剩${left}` : (h ? h.short : '');
+    const label = `${m}月${i}日` + (h ? `，${h.name}` : '') + (past ? '' : lv === 'full' ? '，已額滿' : `，剩 ${left} 位`);
+    html += `<button type="button" class="cell ${lv} ${h?'hol':''} ${d===t?'today':''} ${d===selDate?'sel':''}" data-d="${d}" aria-label="${label}" aria-pressed="${d===selDate}">
       <span class="num">${i}</span><span class="st">${st}</span></button>`;
   }
   $('#cal').innerHTML = html;
@@ -927,12 +977,13 @@ function compressWide(file){
   return new Promise((res, rej) => {
     const url = URL.createObjectURL(file), img = new Image();
     img.onload = () => {
-      const M = 1280, k = Math.min(1, M / Math.max(img.width, img.height));
+      const M = 1200, k = Math.min(1, M / Math.max(img.width, img.height));
       const c = document.createElement('canvas'); c.width = Math.round(img.width*k); c.height = Math.round(img.height*k);
       c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
       URL.revokeObjectURL(url);
       let q = 0.8, out = c.toDataURL('image/jpeg', q);
-      while (out.length > 700000 && q > 0.4){ q -= 0.1; out = c.toDataURL('image/jpeg', q); }  // Firestore 單筆上限 1MB
+      while (out.length > 600000 && q > 0.35){ q -= 0.1; out = c.toDataURL('image/jpeg', q); }  // Firestore 單筆上限 1MB
+      if (out.length > 900000) return rej(new Error('too big'));
       res(out);
     };
     img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('bad image')); };
@@ -952,13 +1003,16 @@ function compressPhoto(file){
     img.src = url;
   });
 }
-function pickPhoto(){
+function chooseFiles(inp){
   return new Promise(res => {
-    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
-    inp.onchange = async () => { const f = inp.files[0]; if (!f) return res(null);
-      try { res(await compressPhoto(f)); } catch { toast('這張照片讀不出來，換一張試試'); res(null); } };
+    inp.value = '';                                    // 清掉上次的選擇，同一張也能再選
+    inp.onchange = () => { const fs = [...inp.files]; inp.value = ''; res(fs); };
     inp.click();
   });
+}
+async function pickPhoto(){
+  const [f] = await chooseFiles($('#pickOne')); if (!f) return null;
+  try { return await compressPhoto(f); } catch { toast('這張照片讀不出來，換一張試試'); return null; }
 }
 function avatarsHtml(b){
   const withPhoto = b.pets.map((p,i) => ({p,i})).filter(x => x.p.photo);
@@ -1028,19 +1082,26 @@ function rangeCheck(){
   if (!a || !b || b <= a) return null;
   const nights = nightsOf(a, b), need = wfCount(bookEd.pets);
   const peak = Math.max(...nights.map(d => occupancyOn(d)));
-  return {nights:nights.length, left:CAP - peak, need, fullDay:nights.find(d => occupancyOn(d) + need > CAP)};
+  return {nights:nights.length, left:CAP - peak, need, fullDay:nights.find(d => occupancyOn(d) + need > CAP),
+          locked:cnyLocked(a, b), cny:cnyNightsIn(a, b)};
 }
 function updateAvail(){
   const box = $('#avail'), r = rangeCheck();
   if (!r){ box.hidden = true; return; }
   box.hidden = false;
+  if (r.locked){
+    box.className = 'avail warn';
+    box.textContent = `過年期間（${md(r.locked.from)}－${md(r.locked.to)}）的住宿將於 ${fmtYMD(r.locked.open)} 開放預訂，目前還不能預約這幾天。`;
+    return;
+  }
   if (r.fullDay){
     box.className = 'avail warn';
     box.textContent = r.left <= 0 ? `${md(r.fullDay)} 鴨鵝已經額滿了，請換個日期。`
       : `這段期間鴨鵝最多只剩 ${r.left} 位，你選了 ${r.need} 隻，請減少數量或換日期。`;
   } else {
     box.className = 'avail';
-    box.textContent = `共 ${r.nights} 晚，這段期間鴨鵝還有 ${r.left} 位` + (r.need ? `，你這次 ${r.need} 隻。` : '。');
+    box.textContent = `共 ${r.nights} 晚，這段期間鴨鵝還有 ${r.left} 位` + (r.need ? `，你這次 ${r.need} 隻。` : '。')
+      + (r.cny ? `其中 ${r.cny} 晚是過年期間，這幾晚會加收 ${CNY_FEE} 服務費。` : '');
   }
 }
 ['#checkIn','#checkOut'].forEach(s => $(s).addEventListener('change', () => {
@@ -1057,6 +1118,7 @@ $('#bookForm').addEventListener('submit', async e => {
   let msg = '';
   if (!data.checkIn || !data.checkOut) msg = '請選入住和退房日期。';
   else if (data.checkIn < today()) msg = '入住日期不能早於今天。';
+  else if (cnyLocked(data.checkIn, data.checkOut)){ const h = cnyLocked(data.checkIn, data.checkOut); msg = `過年期間的住宿將於 ${fmtYMD(h.open)} 開放預訂。`; }
   else if (data.checkOut <= data.checkIn) msg = '退房日要在入住日之後。';
   else if (!data.ownerName.trim()) msg = '請填主人名字。';
   else if (!data.contact.trim()) msg = '請填聯絡方式，館方才找得到你。';
@@ -1089,6 +1151,7 @@ function notifyNewBooking(d){
     ownerName: d.ownerName.trim(), contact: d.contact.trim(), notes: (d.notes||'').trim(),
     pets: d.pets.map(p => ({name: p.name.trim(), label: T[p.type]?.label || '寵物', qty: p.qty})),
     waterfowl: wfCount(d.pets),
+    cnyNights: cnyNightsIn(d.checkIn, d.checkOut), cnyFee: CNY_FEE,
     site: location.origin + location.pathname
   };
   try {
@@ -1101,7 +1164,7 @@ function showDone(d){
     <img class="done-logo" src="${$('.brand .logo').src}" alt="">
     <h3 id="doneTitle">預約已送出</h3>
     <p class="hint">${esc(d.ownerName.trim())}，位子已經先幫你保留。館方會用你留的聯絡方式和你聯繫付款，付款完成並經館方確認後，才算預訂成功。</p>
-    <div class="sum"><div>${md(d.checkIn)} 入住　→　${md(d.checkOut)} 退房</div>${d.pets.map(p => `<div>${petText(p)}</div>`).join('')}</div>
+    <div class="sum"><div>${md(d.checkIn)} 入住　→　${md(d.checkOut)} 退房</div>${cnyNightsIn(d.checkIn, d.checkOut) ? `<div class="cny-note">含過年期間 ${cnyNightsIn(d.checkIn, d.checkOut)} 晚，加收 ${CNY_FEE} 服務費</div>` : ''}${d.pets.map(p => `<div>${petText(p)}</div>`).join('')}</div>
     <button class="btn" id="doneBtn">回首頁</button></div>`;
   o.hidden = false; $('#doneBtn').focus();
   $('#doneBtn').onclick = () => { o.hidden = true; go('home'); };
@@ -1313,6 +1376,7 @@ function renderAdmin(){
       <div class="bk-top"><span class="bk-dates">${rangeText(b)}</span>${stTxt}</div>
       ${owner}
       <div class="bk-pets">${b.pets.map((p,i) => `<div class="bk-pet">${active(b) ? `<button type="button" class="photo-pick ${p.photo?'has':''}" data-setphoto="${b.id}:${i}" aria-label="${p.photo?'更換':'加入'} ${esc(p.name)} 的頭貼">${p.photo ? `<img src="${p.photo}" alt="">` : '加<br>頭貼'}</button>` : ''}<span>${petText(p)}</span></div>`).join('')}</div>
+      ${b.cnyNights ? `<div class="cny-note">含過年期間 ${b.cnyNights} 晚・加收 ${CNY_FEE}</div>` : ''}
       ${b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
       ${actions}
     </div>`;
@@ -1391,16 +1455,32 @@ function renderGallery(){
       : `<div class="empty-state">還沒有上傳${c.label}，首頁目前顯示內建的 ${c.defaults.length} 張。<br>上傳後會改成顯示你上傳的照片。</div>`;
   });
 }
-function uploadTo(sec){
-  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
-  inp.onchange = async () => {
-    const files = [...inp.files]; if (!files.length) return;
-    toast(`上傳中（${files.length} 張）…`);
-    let ok = 0;
-    for (const f of files){ try { await store.addGallery(await compressWide(f), sec); ok++; } catch (ex){ console.error(ex); } }
-    toast(ok === files.length ? `${SECTIONS[sec].label}已上傳` : `有 ${files.length - ok} 張沒有上傳成功`);
-  };
-  inp.click();
+let uploading = false;
+function uploadReason(ex){
+  const c = ex?.code || ex?.message || '';
+  if (/permission/.test(c)) return '沒有權限，請登出再重新登入後台';
+  if (/too big|invalid-argument|exceed/.test(c)) return '照片太大';
+  if (/bad image/.test(c)) return '照片格式讀不出來';
+  if (/unavailable|network|deadline/.test(c)) return '網路不穩';
+  return '上傳失敗';
+}
+async function uploadTo(sec){
+  if (uploading){ toast('還在上傳上一批，請稍等'); return; }
+  const files = await chooseFiles($('#pickMany')); if (!files.length) return;
+  uploading = true;
+  const btn = $(sec === 'daily' ? '#addDaily' : '#addGallery'), label = btn.textContent;
+  btn.disabled = true;
+  let ok = 0, lastErr = '';
+  try {
+    for (let i = 0; i < files.length; i++){
+      btn.textContent = `上傳中 ${i + 1} / ${files.length}…`;
+      try { await store.addGallery(await compressWide(files[i]), sec); ok++; }
+      catch (ex){ console.error(ex); lastErr = uploadReason(ex); }
+    }
+  } finally {
+    uploading = false; btn.disabled = false; btn.textContent = label;
+  }
+  toast(ok === files.length ? `已上傳 ${ok} 張${SECTIONS[sec].label}` : `成功 ${ok} 張，失敗 ${files.length - ok} 張（${lastErr}）`);
 }
 $('#addGallery').addEventListener('click', () => uploadTo('env'));
 $('#addDaily').addEventListener('click', () => uploadTo('daily'));
