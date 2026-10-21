@@ -200,6 +200,16 @@ textarea.field{min-height:88px;resize:vertical}
 .legend .red{color:var(--full);font-weight:500;margin-right:4px}
 .cny-note{margin-top:6px;font-size:13px;color:var(--full)}
 
+/* ---------- 空房日 ---------- */
+.em-sum{text-align:center;margin:14px 0 4px;font-size:14px;color:var(--soft)}
+.em-sum b{font-size:28px;font-weight:300;color:var(--cocoa);margin:0 4px;vertical-align:-3px}
+.em-list{list-style:none;margin:10px 0 0;padding:0}
+.em-list li{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:10px 2px;border-top:1px solid var(--line-soft);font-size:15px}
+.em-list li:first-child{border-top:0}
+.em-list .len{font-size:12.5px;color:var(--soft);white-space:nowrap}
+.em-list .hol-tag{margin-left:6px;vertical-align:1px}
+.em-list .other{display:block;font-size:12px;color:var(--soft)}
+
 /* ---------- 預約須知 ---------- */
 .notice{margin-top:22px;background:var(--tint);border-radius:12px;padding:16px 16px 14px}
 .notice h3{font-size:15px;color:var(--cocoa);letter-spacing:.12em}
@@ -477,6 +487,17 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
         <button type="button" class="link-btn" id="agCancel" style="display:block;margin:10px auto 0">取消</button>
       </form>
       <div id="adminList"></div>
+    </section>
+    <section class="panel" id="emptyAdmin" hidden>
+      <div class="cal-head">
+        <button class="cal-nav" id="emPrev" aria-label="上個月">‹</button>
+        <h2 id="emTitle"></h2>
+        <button class="cal-nav" id="emNext" aria-label="下個月">›</button>
+      </div>
+      <p class="hint" style="text-align:center;margin-top:6px">沒有鴨鴨（含鵝）住宿的日期，待確認的預約也算有住。</p>
+      <p class="em-sum" id="emSum"></p>
+      <ul class="em-list" id="emList"></ul>
+      <button type="button" class="ghost-btn" id="emCopy">複製成文字（可以貼到 LINE、IG）</button>
     </section>
     <section class="panel" id="galleryAdmin" hidden>
       <h2>環境照片</h2>
@@ -1181,12 +1202,13 @@ let adminOn = false, adminFilter = 'pending';
 let unsubPrivate = null;
 function enterAdmin(){
   if (adminOn) return;
-  adminOn = true; $('#pinPanel').hidden = true; $('#adminPanel').hidden = false; $('#galleryAdmin').hidden = false; $('#dailyAdmin').hidden = false;
+  adminOn = true; $('#pinPanel').hidden = true; $('#adminPanel').hidden = false; $('#emptyAdmin').hidden = false; $('#galleryAdmin').hidden = false; $('#dailyAdmin').hidden = false;
   $('#pinInput').value = ''; $('#pinErr').textContent = '';
   renderGallery();
   seenPending = null;
   unsubPrivate = store.subscribePrivate(l => { privateList = l; renderAdmin(); watchNewBookings(); });
   autoCleanup();
+  renderEmpty();
   $('#notifyBtn').hidden = !('Notification' in window) || Notification.permission !== 'default';
 }
 /* ---------- 新預約提醒：後台開著時，有新的待確認就響一聲並跳通知 ---------- */
@@ -1232,7 +1254,7 @@ async function autoCleanup(){
 function leaveAdmin(){
   document.title = baseTitle;
   adminOn = false; if (typeof unsubPrivate === 'function') unsubPrivate(); unsubPrivate = null; privateList = [];
-  $('#pinPanel').hidden = false; $('#adminPanel').hidden = true; $('#galleryAdmin').hidden = true; $('#dailyAdmin').hidden = true;
+  $('#pinPanel').hidden = false; $('#adminPanel').hidden = true; $('#emptyAdmin').hidden = true; $('#galleryAdmin').hidden = true; $('#dailyAdmin').hidden = true;
 }
 $('#pinForm').addEventListener('submit', async e => {
   e.preventDefault();
@@ -1413,7 +1435,50 @@ $('#adminList').addEventListener('click', async e => {
 });
 
 /* ================== 啟動 ================== */
-function renderAll(){ renderDay(); renderCal(); updateAvail(); }
+function renderAll(){ renderDay(); renderCal(); updateAvail(); renderEmpty(); }
+
+/* ================== 後台：每月空房日 ================== */
+let emMonth = today().slice(0,7);
+let emText = '';
+function emptyRanges(month){
+  const [y,m] = month.split('-').map(Number);
+  const last = `${month}-${pad(new Date(y, m, 0).getDate())}`;
+  let d = month === today().slice(0,7) ? today() : `${month}-01`;
+  const ranges = [];
+  if (month < today().slice(0,7)) return ranges;
+  for (; d <= last; d = addDays(d, 1)){
+    if (occupancyOn(d) > 0) continue;
+    const prev = ranges[ranges.length - 1];
+    if (prev && addDays(prev.to, 1) === d) prev.to = d; else ranges.push({from:d, to:d});
+  }
+  return ranges;
+}
+// 那幾天有沒有其他寵物（貓狗鳥）住
+const othersIn = r => nightsOf(r.from, addDays(r.to, 1)).some(d =>
+  publicList.some(b => active(b) && b.checkIn <= d && d < b.checkOut && b.pets.some(p => !T[p.type]?.wf)));
+function renderEmpty(){
+  if (!adminOn) return;
+  const [y,m] = emMonth.split('-').map(Number);
+  $('#emTitle').textContent = `${y} 年 ${m} 月空房日`;
+  $('#emPrev').disabled = emMonth <= today().slice(0,7);
+  const ranges = emptyRanges(emMonth);
+  const days = ranges.reduce((s, r) => s + nightsOf(r.from, addDays(r.to, 1)).length, 0);
+  const short = s => { const [, mm, dd] = s.split('-').map(Number); return `${mm}/${dd}`; };
+  $('#emSum').innerHTML = loaded ? (days ? `${emMonth === today().slice(0,7) ? '今天起' : '這個月'}共<b>${days}</b>天沒有鴨鴨` : '這個月每天都有鴨鴨住 🦆') : '讀取中…';
+  $('#emList').innerHTML = !loaded ? '' : ranges.map(r => {
+    const n = nightsOf(r.from, addDays(r.to, 1)).length;
+    const hols = [...new Set(nightsOf(r.from, addDays(r.to, 1)).map(d => holidayOn(d)?.name).filter(Boolean))];
+    return `<li><span>${r.from === r.to ? md(r.from) : `${md(r.from)} – ${md(r.to)}`}${hols.map(h => `<span class="hol-tag">${esc(h)}</span>`).join('')}${othersIn(r) ? '<span class="other">有其他寵物住</span>' : ''}</span><span class="len">${n} 天</span></li>`;
+  }).join('');
+  $('#emCopy').hidden = !loaded || !ranges.length;
+  emText = `${m} 月以下日期還沒有鴨鴨預約，歡迎預訂：\n` + ranges.map(r => r.from === r.to ? short(r.from) : `${short(r.from)}–${short(r.to)}`).join('、');
+}
+$('#emPrev').addEventListener('click', () => { const [y,m] = emMonth.split('-').map(Number); const d = new Date(y, m-2, 1); emMonth = `${d.getFullYear()}-${pad(d.getMonth()+1)}`; renderEmpty(); });
+$('#emNext').addEventListener('click', () => { const [y,m] = emMonth.split('-').map(Number); const d = new Date(y, m, 1); emMonth = `${d.getFullYear()}-${pad(d.getMonth()+1)}`; renderEmpty(); });
+$('#emCopy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(emText); toast('已複製，可以直接貼上'); }
+  catch { prompt('複製下面的文字：', emText); }
+});
 
 /* ================== 館內環境 ================== */
 let galleryList = [];
