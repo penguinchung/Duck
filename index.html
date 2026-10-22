@@ -193,12 +193,23 @@ textarea.field{min-height:88px;resize:vertical}
 .cancel-btn{border:0;background:none;color:var(--full);cursor:pointer;font-size:12.5px;text-decoration:underline;text-underline-offset:3px;padding:4px 0;margin-top:6px}
 
 /* ---------- 假日 ---------- */
+.cell.closed{background:repeating-linear-gradient(135deg,#EFE9E2 0 4px,#F7F3EE 4px 8px)}
+.cell.closed .st{color:#7C6E64!important;font-weight:500}
+.cell.closed.past{background:none}
+.closed-tag{display:inline-block;margin-left:8px;font-size:12px;color:#6E6259;background:#ECE6DF;border-radius:999px;padding:0 9px;vertical-align:3px;letter-spacing:.06em;font-family:var(--sans);font-weight:400}
+.legend .closed-i{background:repeating-linear-gradient(135deg,#E3DBD1 0 3px,#F7F3EE 3px 6px)!important;border:1px solid #DDD3C8}
 .cell.hol .num{color:var(--full)}
 .cell.hol:not(.low):not(.full) .st{color:var(--full);font-weight:400}
 .cell.hol.past .num{color:#D9B3A9}
 .hol-tag{display:inline-block;margin-left:8px;font-size:12px;color:var(--full);border:1px solid #E7C3B8;border-radius:999px;padding:0 8px;vertical-align:3px;letter-spacing:.06em;font-family:var(--sans);font-weight:400}
 .legend .red{color:var(--full);font-weight:500;margin-right:4px}
 .cny-note{margin-top:6px;font-size:13px;color:var(--full)}
+
+/* ---------- 公休日後台 ---------- */
+.closed-add{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center}
+.closed-add .confirm-btn{height:46px;padding:0 16px}
+@media (max-width:400px){.closed-add{grid-template-columns:1fr auto}.closed-add #closedNote{grid-column:1/-1;grid-row:2}}
+#weeklyClosed button{min-width:40px}
 
 /* ---------- 空房日 ---------- */
 .em-seg{justify-content:center}
@@ -350,6 +361,7 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
         <span><i style="background:var(--low-bg);border:1px solid #E4C597"></i>快額滿（剩 <span class="lowN"></span> 位以下）</span>
         <span><i style="background:var(--full-bg);border:1px solid #DDB1A6"></i>額滿</span>
         <span><span class="red">紅字</span>國定假日、連假</span>
+        <span><i class="closed-i"></i>公休（不開放入住、退房）</span>
       </div>
     </section>
 
@@ -489,6 +501,23 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
       </form>
       <div id="adminList"></div>
     </section>
+    <section class="panel" id="closedAdmin" hidden>
+      <h2>公休日</h2>
+      <p class="hint">公休日首頁月曆會標示出來，客人不能選這天入住或退房（已經住在館裡的可以續住）。</p>
+      <div class="group">
+        <span class="label">每週固定公休</span>
+        <div class="seg" id="weeklyClosed"></div>
+      </div>
+      <div class="group">
+        <span class="label">特定日期</span>
+        <div class="closed-add">
+          <input type="date" class="field" id="closedDate" aria-label="公休日期">
+          <input class="field" id="closedNote" placeholder="備註（選填），例如：員工旅遊" aria-label="備註">
+          <button type="button" class="confirm-btn" id="closedAddBtn">新增</button>
+        </div>
+        <ul class="em-list" id="closedList"></ul>
+      </div>
+    </section>
     <section class="panel" id="emptyAdmin" hidden>
       <div class="cal-head">
         <button class="cal-nav" id="emPrev" aria-label="上個月">‹</button>
@@ -578,6 +607,14 @@ const HOLIDAYS = [
   {name:'元旦連假',       short:'元旦', from:'2027-12-31', to:'2028-01-02'}
 ];
 const CNY_FEE = '10%';
+/* 公休日：館方在後台設定，存在 Firebase 的 duck_settings/closed
+   weekly：每週固定公休（0=週日…6=週六）；dates：特定日期 {'2026-11-03': '備註'} */
+let closedCfg = {weekly: [], dates: {}};
+const closedOn = d => {
+  if (closedCfg.dates && Object.prototype.hasOwnProperty.call(closedCfg.dates, d)) return {note: closedCfg.dates[d] || ''};
+  if ((closedCfg.weekly || []).includes(parse(d).getDay())) return {note: '每週公休', weekly: true};
+  return null;
+};
 const holidayOn = d => HOLIDAYS.find(h => h.from <= d && d <= h.to);
 const cnyNightsIn = (a, b) => (!a || !b || b <= a || b === '9999-12-31') ? 0
   : nightsOf(a, b).filter(d => holidayOn(d)?.cny).length;
@@ -680,6 +717,9 @@ function makeDemoStore(){
     subscribePublic(f){ subsP.push(f); f(snap(pub)); },
     subscribePrivate(f){ subsV.push(f); f(snap(priv)); },
     subscribeGallery(f){ subsG.push(f); f(snap(gal)); },
+    subscribeClosed(f){ this._cf = f; f(JSON.parse(JSON.stringify(this._closed))); },
+    _closed: {weekly: [], dates: {[addDays(today(), 9)]: '員工旅遊（範例）'}},
+    async saveClosed(cfg){ this._closed = JSON.parse(JSON.stringify(cfg)); this._cf && this._cf(JSON.parse(JSON.stringify(cfg))); },
     async addGallery(src, section = 'env'){ gal.push({id:'g'+(seq++), src, caption:'', order:Date.now(), section}); emitG(); },
     async updateGallery(id, patch){ const g = gal.find(x => x.id === id); if (g) Object.assign(g, patch); emitG(); },
     async deleteGallery(id){ const i = gal.findIndex(x => x.id === id); if (i >= 0) gal.splice(i, 1); emitG(); },
@@ -737,6 +777,9 @@ async function makeFirebaseStore(cfg){
     logout: () => au.signOut(auth),
     subscribePublic: f => sub('duck_public', f),
     subscribePrivate: f => sub('duck_bookings', f),
+    subscribeClosed: f => fs.onSnapshot(fs.doc(db, 'duck_settings', 'closed'),
+      s => f(s.exists() ? {weekly: s.data().weekly || [], dates: s.data().dates || {}} : {weekly: [], dates: {}}), err => console.error(err)),
+    saveClosed: cfg => fs.setDoc(fs.doc(db, 'duck_settings', 'closed'), {weekly: cfg.weekly, dates: cfg.dates}),
     subscribeGallery: f => fs.onSnapshot(fs.collection(db, 'duck_gallery'), s => f(s.docs.map(d => ({id:d.id, ...d.data()}))), err => console.error(err)),
     addGallery: (src, section = 'env') => fs.addDoc(fs.collection(db, 'duck_gallery'), {src, caption:'', order:Date.now(), section}),
     updateGallery: (id, patch) => fs.updateDoc(fs.doc(db, 'duck_gallery', id), patch),
@@ -888,12 +931,13 @@ let selDate = today();
 let loaded = false;
 function renderDay(){
   const d = selDate, occ = occupancyOn(d), left = CAP - occ, lv = levelOf(left);
-  const h = holidayOn(d), locked = h?.cny && today() < h.open && d >= today();
-  $('#dayTitle').innerHTML = esc(d === today() ? '今天的鴨鴨' : `${md(d)}的鴨鴨`) + (h ? `<span class="hol-tag">${esc(h.name)}</span>` : '');
+  const h = holidayOn(d), locked = h?.cny && today() < h.open && d >= today(), cl = closedOn(d);
+  $('#dayTitle').innerHTML = esc(d === today() ? '今天的鴨鴨' : `${md(d)}的鴨鴨`) + (h ? `<span class="hol-tag">${esc(h.name)}</span>` : '')
+    + (cl ? `<span class="closed-tag">公休${cl.note && !cl.weekly ? '・' + esc(cl.note) : ''}</span>` : '');
   const st = $('#dayStatus');
   st.className = 'status ' + lv;
   st.textContent = !loaded ? '讀取中…' : d < today() ? '已過去的日期' : lv === 'full' ? '已額滿'
-    : locked ? `${fmtYMD(h.open)} 開放預訂` : lv === 'low' ? `快額滿，剩 ${left} 位` : `還有 ${left} 位`;
+    : cl ? '公休日，不開放入住和退房' : locked ? `${fmtYMD(h.open)} 開放預訂` : lv === 'low' ? `快額滿，剩 ${left} 位` : `還有 ${left} 位`;
   const hold = publicList.filter(b => isPending(b) && b.checkIn <= d && d < b.checkOut).reduce((s,b) => s + (b.waterfowl||0), 0);
   $('#dayCount').innerHTML = `${occ}<small>/ ${CAP} 隻鴨鵝${hold ? `・其中 ${hold} 位保留中` : ''}</small>`;
   const fill = $('#meterFill');
@@ -931,7 +975,7 @@ function renderDay(){
       </div></div>`;
   }).join('') + holdRow : `<div class="empty-state">這天還沒有住客。</div>`;
 
-  $('#bookThisDay').hidden = d < today() || lv === 'full' || locked;
+  $('#bookThisDay').hidden = d < today() || lv === 'full' || locked || !!cl;
   if (!loaded) $('#guestList').innerHTML = '';
 }
 
@@ -950,10 +994,10 @@ function renderCal(){
     const d = `${calMonth}-${pad(i)}`;
     const left = leftOn(d), past = d < t;
     const lv = past ? 'past' : levelOf(left);
-    const h = holidayOn(d);
-    const st = (!past && loaded && lv === 'full') ? '額滿' : (!past && loaded && lv === 'low') ? `剩${left}` : (h ? h.short : '');
-    const label = `${m}月${i}日` + (h ? `，${h.name}` : '') + (past ? '' : lv === 'full' ? '，已額滿' : `，剩 ${left} 位`);
-    html += `<button type="button" class="cell ${lv} ${h?'hol':''} ${d===t?'today':''} ${d===selDate?'sel':''}" data-d="${d}" aria-label="${label}" aria-pressed="${d===selDate}">
+    const h = holidayOn(d), cl = closedOn(d);
+    const st = (!past && cl) ? '公休' : (!past && loaded && lv === 'full') ? '額滿' : (!past && loaded && lv === 'low') ? `剩${left}` : (h ? h.short : '');
+    const label = `${m}月${i}日` + (h ? `，${h.name}` : '') + (cl ? '，公休' : '') + (past ? '' : lv === 'full' ? '，已額滿' : `，剩 ${left} 位`);
+    html += `<button type="button" class="cell ${lv} ${h?'hol':''} ${cl?'closed':''} ${d===t?'today':''} ${d===selDate?'sel':''}" data-d="${d}" aria-label="${label}" aria-pressed="${d===selDate}">
       <span class="num">${i}</span><span class="st">${st}</span></button>`;
   }
   $('#cal').innerHTML = html;
@@ -1114,12 +1158,17 @@ function rangeCheck(){
   const nights = nightsOf(a, b), need = wfCount(bookEd.pets);
   const peak = Math.max(...nights.map(d => occupancyOn(d)));
   return {nights:nights.length, left:CAP - peak, need, fullDay:nights.find(d => occupancyOn(d) + need > CAP),
-          locked:cnyLocked(a, b), cny:cnyNightsIn(a, b)};
+          locked:cnyLocked(a, b), cny:cnyNightsIn(a, b), closed: closedOn(a) ? a : closedOn(b) ? b : null};
 }
 function updateAvail(){
   const box = $('#avail'), r = rangeCheck();
   if (!r){ box.hidden = true; return; }
   box.hidden = false;
+  if (r.closed){
+    box.className = 'avail warn';
+    box.textContent = `${md(r.closed)} 是公休日，不能${r.closed === $('#checkIn').value ? '入住' : '退房'}，請換一天。（公休日可以續住）`;
+    return;
+  }
   if (r.locked){
     box.className = 'avail warn';
     box.textContent = `過年期間（${md(r.locked.from)}－${md(r.locked.to)}）的住宿將於 ${fmtYMD(r.locked.open)} 開放預訂，目前還不能預約這幾天。`;
@@ -1149,6 +1198,8 @@ $('#bookForm').addEventListener('submit', async e => {
   let msg = '';
   if (!data.checkIn || !data.checkOut) msg = '請選入住和退房日期。';
   else if (data.checkIn < today()) msg = '入住日期不能早於今天。';
+  else if (closedOn(data.checkIn)) msg = `${md(data.checkIn)} 是公休日，不能入住，請換一天。`;
+  else if (closedOn(data.checkOut)) msg = `${md(data.checkOut)} 是公休日，不能退房，請換一天。`;
   else if (cnyLocked(data.checkIn, data.checkOut)){ const h = cnyLocked(data.checkIn, data.checkOut); msg = `過年期間的住宿將於 ${fmtYMD(h.open)} 開放預訂。`; }
   else if (data.checkOut <= data.checkIn) msg = '退房日要在入住日之後。';
   else if (!data.ownerName.trim()) msg = '請填主人名字。';
@@ -1207,7 +1258,7 @@ let adminOn = false, adminFilter = 'pending';
 let unsubPrivate = null;
 function enterAdmin(){
   if (adminOn) return;
-  adminOn = true; $('#pinPanel').hidden = true; $('#adminPanel').hidden = false; $('#emptyAdmin').hidden = false; $('#galleryAdmin').hidden = false; $('#dailyAdmin').hidden = false;
+  adminOn = true; $('#pinPanel').hidden = true; $('#adminPanel').hidden = false; $('#emptyAdmin').hidden = false; $('#closedAdmin').hidden = false; renderClosedAdmin(); $('#galleryAdmin').hidden = false; $('#dailyAdmin').hidden = false;
   $('#pinInput').value = ''; $('#pinErr').textContent = '';
   renderGallery();
   seenPending = null;
@@ -1259,7 +1310,7 @@ async function autoCleanup(){
 function leaveAdmin(){
   document.title = baseTitle;
   adminOn = false; if (typeof unsubPrivate === 'function') unsubPrivate(); unsubPrivate = null; privateList = [];
-  $('#pinPanel').hidden = false; $('#adminPanel').hidden = true; $('#emptyAdmin').hidden = true; $('#galleryAdmin').hidden = true; $('#dailyAdmin').hidden = true;
+  $('#pinPanel').hidden = false; $('#adminPanel').hidden = true; $('#emptyAdmin').hidden = true; $('#closedAdmin').hidden = true; $('#galleryAdmin').hidden = true; $('#dailyAdmin').hidden = true;
 }
 $('#pinForm').addEventListener('submit', async e => {
   e.preventDefault();
@@ -1440,6 +1491,45 @@ $('#adminList').addEventListener('click', async e => {
 });
 
 /* ================== 啟動 ================== */
+/* ================== 後台：公休日 ================== */
+function renderClosedAdmin(){
+  if (!adminOn) return;
+  const wk = closedCfg.weekly || [];
+  $('#weeklyClosed').innerHTML = [...WD].map((w, i) => `<button type="button" data-wd="${i}" aria-pressed="${wk.includes(i)}">週${w}</button>`).join('');
+  const t = today();
+  const list = Object.entries(closedCfg.dates || {}).filter(([d]) => d >= t).sort(([a],[b]) => a.localeCompare(b));
+  $('#closedList').innerHTML = list.length ? list.map(([d, note]) => `<li><span>${md(d)}${note ? `<span class="other">${esc(note)}</span>` : ''}</span><button type="button" class="cancel-btn" data-unclose="${d}" style="margin:0">刪除</button></li>`).join('')
+    : '<li class="hint" style="justify-content:center">還沒有設定特定公休日。</li>';
+  if (!$('#closedDate').value) $('#closedDate').value = '';
+  $('#closedDate').min = t;
+}
+async function saveClosed(next, msg){
+  try { await store.saveClosed(next); toast(msg); }
+  catch (ex){ console.error(ex); toast('儲存失敗，請確認 Firebase 規則已更新'); }
+}
+$('#weeklyClosed').addEventListener('click', e => {
+  const b = e.target.closest('[data-wd]'); if (!b) return;
+  const i = Number(b.dataset.wd), wk = new Set(closedCfg.weekly || []);
+  wk.has(i) ? wk.delete(i) : wk.add(i);
+  saveClosed({weekly: [...wk].sort(), dates: closedCfg.dates || {}}, wk.has(i) ? `每週${WD[i]}設為公休` : `取消每週${WD[i]}公休`);
+});
+$('#closedAddBtn').addEventListener('click', () => {
+  const d = $('#closedDate').value, note = $('#closedNote').value.trim().slice(0, 40);
+  if (!d){ toast('請先選日期'); return; }
+  const n = publicList.filter(b => active(b) && (b.checkIn === d || b.checkOut === d)).length;
+  if (n && !confirm(`${md(d)} 已經有 ${n} 筆預約要入住或退房，還是要設為公休嗎？`)) return;
+  // 順便清掉已經過去的公休日
+  const dates = Object.fromEntries(Object.entries(closedCfg.dates || {}).filter(([k]) => k >= today()));
+  dates[d] = note;
+  $('#closedDate').value = ''; $('#closedNote').value = '';
+  saveClosed({weekly: closedCfg.weekly || [], dates}, `${md(d)} 設為公休`);
+});
+$('#closedList').addEventListener('click', e => {
+  const b = e.target.closest('[data-unclose]'); if (!b) return;
+  const dates = {...(closedCfg.dates || {})}; delete dates[b.dataset.unclose];
+  saveClosed({weekly: closedCfg.weekly || [], dates}, '已刪除公休日');
+});
+
 function renderAll(){ renderDay(); renderCal(); updateAvail(); renderEmpty(); }
 
 /* ================== 後台：每月空房日 ================== */
@@ -1614,6 +1704,7 @@ let store;
   }
   store.subscribePublic(l => { publicList = l; loaded = true; renderAll(); });
   store.subscribeGallery(l => { galleryList = l; renderGallery(); });
+  store.subscribeClosed(c => { closedCfg = c; renderAll(); renderClosedAdmin(); });
 })();
 </script>
 </body>
