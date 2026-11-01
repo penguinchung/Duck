@@ -20,7 +20,7 @@
   2. 正式上線：把 Firebase 的 firebaseConfig 貼到下方 CONFIG.firebase。
      集合：duck_public（公開：日期、寵物名字）
            duck_bookings（後台：主人姓名、聯絡方式、備註）
-           duck_capacity（每晚鴨鵝已佔用數，防止超收）
+           duck_capacity（每晚已佔用的位子數，鴨 1 位、鵝 4 位，防止超收）
            duck_gallery（館內環境照片，從後台上傳）
   3. 後台登入：
      預覽模式用 CONFIG.adminPin（預設 1234）。
@@ -386,7 +386,7 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
     <button class="back" data-go="home">‹ 回首頁</button>
     <form class="panel" id="bookForm" novalidate style="margin-top:6px">
       <h2>預約住宿</h2>
-      <p class="hint">柯爾鴨和鵝每晚最多 <span class="capN"></span> 位，貓狗、鳥類和其他寵物也可以一起住。</p>
+      <p class="hint">柯爾鴨和鵝每晚共 <span class="capN"></span> 個位子，1 隻鴨佔 1 位、1 隻鵝佔 4 位。貓狗、鳥類和其他寵物也可以一起住。</p>
 
       <div class="group">
         <span class="label">住宿日期</span>
@@ -628,8 +628,8 @@ const cnyLocked = (a, b) => {
 const fmtYMD = s => { const [y,m,dd] = s.split('-').map(Number); return `${y}/${m}/${dd}`; };
 
 const TYPES = [
-  {key:'duck',  label:'柯爾鴨', emoji:'🦆', wf:true},
-  {key:'goose', label:'鵝',     emoji:'🪿', wf:true},
+  {key:'duck',  label:'柯爾鴨', emoji:'🦆', wf:true, w:1},   // w：每隻佔幾個位子
+  {key:'goose', label:'鵝',     emoji:'🪿', wf:true, w:4},
   {key:'dog',   label:'狗狗',   emoji:'🐶'},
   {key:'cat',   label:'貓咪',   emoji:'🐱'},
   {key:'bird',  label:'鳥類',   emoji:'🐦'},
@@ -649,7 +649,10 @@ const nightsOf = (a, b) => { const out = []; for (let d = a; d < b; d = addDays(
 const WD = '日一二三四五六';
 const md = s => { const d = parse(s); return `${d.getMonth()+1}/${d.getDate()}（${WD[d.getDay()]}）`; };
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const wfCount = pets => pets.reduce((s,p) => s + (T[p.type]?.wf ? (Number(p.qty)||0) : 0), 0);
+// 佔用的位子數：鴨 1 隻 1 位、鵝 1 隻 4 位
+const wfCount = pets => pets.reduce((s,p) => s + (T[p.type]?.wf ? (Number(p.qty)||0) * (T[p.type].w || 1) : 0), 0);
+const gooseIn = pets => pets.reduce((s,p) => s + (p.type === 'goose' ? (Number(p.qty)||0) : 0), 0);
+const GOOSE_W = 4;
 const mask = n => { n = String(n||'').trim(); return n ? n[0] + '○○' : ''; };
 const active = b => b.status !== 'canceled';
 const isPending = b => b.status === 'pending';
@@ -939,7 +942,11 @@ function renderDay(){
   st.textContent = !loaded ? '讀取中…' : d < today() ? '已過去的日期' : lv === 'full' ? '已額滿'
     : cl ? '公休日，不開放入住和退房' : locked ? `${fmtYMD(h.open)} 開放預訂` : lv === 'low' ? `快額滿，剩 ${left} 位` : `還有 ${left} 位`;
   const hold = publicList.filter(b => isPending(b) && b.checkIn <= d && d < b.checkOut).reduce((s,b) => s + (b.waterfowl||0), 0);
-  $('#dayCount').innerHTML = `${occ}<small>/ ${CAP} 隻鴨鵝${hold ? `・其中 ${hold} 位保留中` : ''}</small>`;
+  const stayingB = publicList.filter(b => active(b) && b.checkIn <= d && d < b.checkOut);
+  const nDuck = stayingB.reduce((s,b) => s + b.pets.reduce((t,p) => t + (p.type === 'duck' ? p.qty : 0), 0), 0);
+  const nGoose = stayingB.reduce((s,b) => s + gooseIn(b.pets), 0);
+  const mix = nGoose ? `鴨 ${nDuck}・鵝 ${nGoose}` : '';
+  $('#dayCount').innerHTML = `${occ}<small>/ ${CAP} 位${mix ? `（${mix}）` : ''}${hold ? `・${hold} 位保留中` : ''}</small>`;
   const fill = $('#meterFill');
   fill.style.width = Math.min(100, (occ - hold) / CAP * 100) + '%';
   fill.className = lv;
@@ -1177,10 +1184,10 @@ function updateAvail(){
   if (r.fullDay){
     box.className = 'avail warn';
     box.textContent = r.left <= 0 ? `${md(r.fullDay)} 鴨鵝已經額滿了，請換個日期。`
-      : `這段期間鴨鵝最多只剩 ${r.left} 位，你選了 ${r.need} 隻，請減少數量或換日期。`;
+      : `這段期間最多只剩 ${r.left} 位，你這次需要 ${r.need} 位${gooseIn(bookEd.pets) ? `（鵝 1 隻佔 ${GOOSE_W} 位）` : ''}，請減少數量或換日期。`;
   } else {
     box.className = 'avail';
-    box.textContent = `共 ${r.nights} 晚，這段期間鴨鵝還有 ${r.left} 位` + (r.need ? `，你這次 ${r.need} 隻。` : '。')
+    box.textContent = `共 ${r.nights} 晚，這段期間還有 ${r.left} 位` + (r.need ? `，你這次佔 ${r.need} 位${gooseIn(bookEd.pets) ? `（鵝 1 隻佔 ${GOOSE_W} 位）` : ''}。` : '。')
       + (r.cny ? `其中 ${r.cny} 晚是過年期間，這幾晚會加收 ${CNY_FEE} 服務費。` : '');
   }
 }
@@ -1262,12 +1269,28 @@ function enterAdmin(){
   $('#pinInput').value = ''; $('#pinErr').textContent = '';
   renderGallery();
   seenPending = null;
-  unsubPrivate = store.subscribePrivate(l => { privateList = l; renderAdmin(); watchNewBookings(); });
+  unsubPrivate = store.subscribePrivate(l => { privateList = l; renderAdmin(); watchNewBookings(); migrateWeights(); });
   autoCleanup();
   renderEmpty();
   $('#notifyBtn').hidden = !('Notification' in window) || Notification.permission !== 'default';
 }
 /* ---------- 新預約提醒：後台開著時，有新的待確認就響一聲並跳通知 ---------- */
+/* 一隻鵝改算 4 位後，把還沒退房、用舊算法存的預約重新計算一次（只跑一次） */
+let migrated = false;
+async function migrateWeights(){
+  if (migrated || !privateList.length) return; migrated = true;
+  const t = today();
+  const todo = privateList.filter(b => active(b) && b.checkOut >= t && (b.waterfowl || 0) !== wfCount(b.pets));
+  if (!todo.length) return;
+  const bad = [];
+  for (const b of todo){
+    try {
+      await store.update(b, {checkIn:b.checkIn, checkOut:b.checkOut, longStay:isLong(b), ownerName:b.ownerName||'',
+                             contact:b.contact||'', notes:b.notes||'', pets:b.pets});
+    } catch (ex){ console.error(ex); bad.push(b); }
+  }
+  toast(bad.length ? `已依「鵝佔 ${GOOSE_W} 位」重算，有 ${bad.length} 筆會超過 ${CAP} 位，請手動調整` : `已依「鵝佔 ${GOOSE_W} 位」重新計算 ${todo.length} 筆預約`);
+}
 let seenPending = null;
 const baseTitle = document.title;
 function watchNewBookings(){
@@ -1401,7 +1424,7 @@ $('#addGuestForm').addEventListener('submit', async e => {
   } catch (ex){
     console.error(ex);
     err.textContent = ex instanceof FullError
-      ? (long ? `${md(ex.date)} 那天鴨鵝會超過 ${CAP} 隻（已有其他預約），請確認數量或入住日。` : `${md(ex.date)} 鴨鵝已經滿 ${CAP} 隻了，請確認數量或日期。`)
+      ? (long ? `${md(ex.date)} 那天會超過 ${CAP} 位（已有其他預約），請確認數量或入住日。` : `${md(ex.date)} 已經超過 ${CAP} 位了，請確認數量或日期（鵝 1 隻佔 ${GOOSE_W} 位）。`)
       : (editing ? '儲存失敗，請再試一次。' : '新增失敗，請再試一次。');
   } finally { btn.disabled = false; }
 });
