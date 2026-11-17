@@ -225,6 +225,27 @@ textarea.field{min-height:88px;resize:vertical}
 .my-item p{margin:4px 0 0;font-size:14px}
 .my-item .acts{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
 
+/* ---------- 金額試算 ---------- */
+.quote{background:var(--tint);border-radius:12px;padding:12px 14px}
+.qt{width:100%;border-collapse:collapse;font-size:13.5px}
+.qt td,.qt th{padding:5px 0;text-align:right;white-space:nowrap}
+.qt td:first-child,.qt th:first-child{text-align:left;white-space:normal;padding-right:8px}
+.qt th{font-weight:500;color:var(--soft);font-size:12.5px}
+.qt td:nth-child(2){color:var(--soft);padding-right:10px}
+.qt tr.cny td{color:var(--full)}
+.qt tr.total td{border-top:1px solid var(--line);padding-top:8px;font-size:15px;font-weight:500;color:var(--cocoa)}
+.qt tr.total td:last-child{font-size:18px}
+.qt-note{font-size:12.5px;color:var(--soft);margin:6px 0 0}
+.price-list{margin-top:10px;font-size:13.5px}
+.price-list summary{cursor:pointer;color:var(--brown);letter-spacing:.06em}
+.price-list .qt{margin-top:8px}
+.price-list .qt td{color:var(--cocoa)}
+.bank{margin-top:10px;background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px;text-align:left}
+.bank div{display:flex;align-items:baseline;gap:10px;padding:2px 0}
+.bank span{color:var(--soft);font-size:12.5px;min-width:2.5em}
+.bank b{font-weight:500;letter-spacing:.04em}
+.bank .link-btn{margin-left:auto}
+
 /* ---------- 空房日 ---------- */
 .em-seg{justify-content:center}
 .em-sum{text-align:center;margin:14px 0 4px;font-size:14px;color:var(--soft)}
@@ -406,7 +427,7 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
     </section>
     <form class="panel" id="bookForm" novalidate style="margin-top:6px">
       <h2>預約住宿</h2>
-      <p class="hint">柯爾鴨和鵝每晚共 <span class="capN"></span> 個位子，1 隻鴨佔 1 位、1 隻鵝佔 4 位。貓狗、鳥類和其他寵物也可以一起住。</p>
+      <p class="hint">鴨鴨和鵝每晚共 <span class="capN"></span> 個位子，柯爾鴨 1 隻佔 1 位，大鴨（番鴨）和鵝 1 隻佔 4 位。貓狗、鳥類和其他寵物也可以一起住。</p>
 
       <div class="group">
         <span class="label">住宿日期</span>
@@ -430,6 +451,23 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
         <span class="label">寵物</span>
         <div id="petRows"></div>
         <button type="button" class="add-pet" id="addPet">＋ 再加一種寵物</button>
+      </div>
+
+      <div class="group">
+        <span class="label">金額試算</span>
+        <div class="quote" id="quoteBox"><p class="qt-note">選好日期和寵物後，這裡會自動算出金額。</p></div>
+        <details class="price-list">
+          <summary>查看住宿價目表</summary>
+          <table class="qt">
+            <tr><th></th><th>平日</th><th>假日</th></tr>
+            <tr><td>柯爾鴨 1 隻</td><td>$300</td><td>$456</td></tr>
+            <tr><td>柯爾鴨 2 隻</td><td>$450</td><td>$656</td></tr>
+            <tr><td>柯爾鴨第 3 隻起，每隻加</td><td>+$150</td><td>+$200</td></tr>
+            <tr><td>大鴨（番鴨）1 隻</td><td>$455</td><td>$560</td></tr>
+            <tr><td>鵝 1 隻</td><td>$455</td><td>$560</td></tr>
+          </table>
+          <p class="qt-note">以上為每晚價格。平日：週一～週五；假日：週六、週日及國定假日（含連假）。過年期間另加收 10%。</p>
+        </details>
       </div>
 
       <div class="group">
@@ -590,6 +628,12 @@ const CONFIG = {
   adminPin: '1234',   // 後台密碼（預覽模式用）
   keepDays: 30,       // 退房超過幾天的資料自動刪除；0 = 退房隔天就刪
   notifyUrl: 'https://script.google.com/macros/s/AKfycbyJvK6eEbL93VkB1bQ-uL7pqIoZvt7F8fh2nl04EC2mMDWXW_cTI7EEJZw1tY11AxTS/exec',      // 新預約 Email 通知：貼上 Google Apps Script 的網頁應用程式網址
+  bank: {             // 匯款資訊：填好後客人送出預約時會看到
+    name: '',         // 銀行名稱，例如：國泰世華
+    code: '',         // 銀行代碼，例如：013
+    account: '',      // 帳號
+    holder: ''        // 戶名
+  },
   firebase: {         // Firebase 專案：duck-fc461
     apiKey: "AIzaSyDkSu1PBfykSJqhtdWhBq3_frkWKijBixI",
     authDomain: "duck-fc461.firebaseapp.com",
@@ -656,6 +700,7 @@ const fmtYMD = s => { const [y,m,dd] = s.split('-').map(Number); return `${y}/${
 
 const TYPES = [
   {key:'duck',  label:'柯爾鴨', emoji:'🦆', wf:true, w:1},   // w：每隻佔幾個位子
+  {key:'muscovy', label:'大鴨（番鴨）', emoji:'🦆', wf:true, w:4},
   {key:'goose', label:'鵝',     emoji:'🪿', wf:true, w:4},
   {key:'dog',   label:'狗狗',   emoji:'🐶'},
   {key:'cat',   label:'貓咪',   emoji:'🐱'},
@@ -678,8 +723,66 @@ const md = s => { const d = parse(s); return `${d.getMonth()+1}/${d.getDate()}�
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // 佔用的位子數：鴨 1 隻 1 位、鵝 1 隻 4 位
 const wfCount = pets => pets.reduce((s,p) => s + (T[p.type]?.wf ? (Number(p.qty)||0) * (T[p.type].w || 1) : 0), 0);
-const gooseIn = pets => pets.reduce((s,p) => s + (p.type === 'goose' ? (Number(p.qty)||0) : 0), 0);
+// 大隻的（大鴨、鵝）：每隻佔 4 位
+const gooseIn = pets => pets.reduce((s,p) => s + ((p.type === 'goose' || p.type === 'muscovy') ? (Number(p.qty)||0) : 0), 0);
 const GOOSE_W = 4;
+
+/* ---------- 住宿價格（每晚） ----------
+   平日：週一～週五、非國定假日；假日：週六、週日、國定假日與連假
+   柯爾鴨：1 隻＝一隻價；2 隻＝兩隻價；第 3 隻起每隻加「兩隻價－一隻價」（平日 +150、假日 +200） */
+const PRICES = {
+  duck:    {weekday: {one: 300, two: 450}, holiday: {one: 456, two: 656}},
+  muscovy: {weekday: {one: 455},           holiday: {one: 560}},
+  goose:   {weekday: {one: 455},           holiday: {one: 560}}
+};
+const isHolidayRate = d => { const w = parse(d).getDay(); return w === 0 || w === 6 || !!holidayOn(d); };
+const money = n => '$' + Math.round(n).toLocaleString('en-US');
+function nightPrice(type, qty, kind){
+  const p = PRICES[type]?.[kind]; if (!p || !qty) return 0;
+  if (!p.two) return qty * p.one;
+  return qty === 1 ? p.one : p.two + (qty - 2) * (p.two - p.one);
+}
+// 試算整段住宿的金額；回傳 {total, rows, cnyExtra, unpriced:[種類]}
+function quote(pets, a, b){
+  if (!a || !b || b <= a || b === '9999-12-31') return null;
+  const qty = {}; pets.forEach(p => { qty[p.type] = (qty[p.type]||0) + (Number(p.qty)||0); });
+  const rows = [], unpriced = [...new Set(pets.filter(p => !PRICES[p.type]).map(p => T[p.type]?.label || '其他'))];
+  let total = 0, cnyBase = 0;
+  for (const kind of ['weekday', 'holiday']){
+    const nights = nightsOf(a, b).filter(d => (kind === 'holiday') === isHolidayRate(d));
+    if (!nights.length) continue;
+    for (const t of Object.keys(PRICES)){
+      if (!qty[t]) continue;
+      const per = nightPrice(t, qty[t], kind), sub = per * nights.length;
+      rows.push({kind, nights: nights.length, label: T[t].label, qty: qty[t], per, sub});
+      total += sub;
+      cnyBase += per * nights.filter(d => holidayOn(d)?.cny).length;
+    }
+  }
+  const cnyExtra = Math.round(cnyBase * parseFloat(CNY_FEE) / 100);
+  return {total: total + cnyExtra, rows, cnyExtra, unpriced};
+}
+function quoteHtml(q){
+  if (!q || (!q.rows.length && !q.unpriced.length)) return '';
+  const K = {weekday: '平日', holiday: '假日'};
+  return `<table class="qt">${q.rows.map(r => `<tr><td>${K[r.kind]} ${r.nights} 晚・${esc(r.label)} ${r.qty} 隻</td><td>${money(r.per)} × ${r.nights}</td><td>${money(r.sub)}</td></tr>`).join('')}
+    ${q.cnyExtra ? `<tr class="cny"><td colspan="2">過年期間加收 ${CNY_FEE}</td><td>${money(q.cnyExtra)}</td></tr>` : ''}
+    <tr class="total"><td colspan="2">合計</td><td>${money(q.total)}</td></tr></table>
+    ${q.unpriced.length ? `<p class="qt-note">${q.unpriced.map(esc).join('、')}的費用另計，館方會再和你確認。</p>` : ''}`;
+}
+function bankHtml(){
+  const k = CONFIG.bank || {};
+  if (!k.account) return '<p class="qt-note">匯款資訊館方會再提供給你。</p>';
+  return `<div class="bank">
+    <div><span>銀行</span><b>${esc(k.name)}${k.code ? `（${esc(k.code)}）` : ''}</b></div>
+    <div><span>帳號</span><b>${esc(k.account)}</b><button type="button" class="link-btn" data-copy="${esc(k.account)}">複製</button></div>
+    ${k.holder ? `<div><span>戶名</span><b>${esc(k.holder)}</b></div>` : ''}
+  </div>`;
+}
+document.addEventListener('click', async e => {
+  const c = e.target.closest('[data-copy]'); if (!c) return;
+  try { await navigator.clipboard.writeText(c.dataset.copy); toast('已複製帳號'); } catch { prompt('複製帳號：', c.dataset.copy); }
+});
 const mask = n => { n = String(n||'').trim(); return n ? n[0] + '○○' : ''; };
 const active = b => b.status !== 'canceled';
 const isPending = b => b.status === 'pending';
@@ -711,7 +814,7 @@ class FullError extends Error { constructor(date){ super('full'); this.date = da
 
 function splitDoc(d, status = 'pending'){
   const pets = d.pets.map(p => ({type:p.type, name:p.name.trim(), qty:Number(p.qty)||1, photo:p.photo||''}));
-  const base = {checkIn:d.checkIn, checkOut:d.checkOut, pets, waterfowl:wfCount(pets), status, createdAt:Date.now(), ...(d.longStay ? {longStay:true} : {}), cnyNights: cnyNightsIn(d.checkIn, d.checkOut)};
+  const base = {checkIn:d.checkIn, checkOut:d.checkOut, pets, waterfowl:wfCount(pets), status, createdAt:Date.now(), ...(d.longStay ? {longStay:true} : {}), cnyNights: cnyNightsIn(d.checkIn, d.checkOut), price: quote(pets, d.checkIn, d.checkOut)?.total || 0};
   return {
     pub:  {...base},
     priv: {...base, ownerName:(d.ownerName||'').trim(), contact:(d.contact||'').trim(), notes:(d.notes||'').trim(), ...(d.cancelKey ? {cancelKey:d.cancelKey} : {})}
@@ -992,8 +1095,9 @@ function renderDay(){
   const hold = publicList.filter(b => isPending(b) && b.checkIn <= d && d < b.checkOut).reduce((s,b) => s + (b.waterfowl||0), 0);
   const stayingB = publicList.filter(b => active(b) && b.checkIn <= d && d < b.checkOut);
   const nDuck = stayingB.reduce((s,b) => s + b.pets.reduce((t,p) => t + (p.type === 'duck' ? p.qty : 0), 0), 0);
-  const nGoose = stayingB.reduce((s,b) => s + gooseIn(b.pets), 0);
-  const mix = nGoose ? `鴨 ${nDuck}・鵝 ${nGoose}` : '';
+  const nOf = type => stayingB.reduce((s,b) => s + b.pets.reduce((t,p) => t + (p.type === type ? p.qty : 0), 0), 0);
+  const nBig = nOf('muscovy'), nGoose = nOf('goose');
+  const mix = (nBig || nGoose) ? [`鴨 ${nDuck}`, nBig ? `大鴨 ${nBig}` : '', nGoose ? `鵝 ${nGoose}` : ''].filter(Boolean).join('・') : '';
   $('#dayCount').innerHTML = `${occ}<small>/ ${CAP} 位${mix ? `（${mix}）` : ''}${hold ? `・${hold} 位保留中` : ''}</small>`;
   const fill = $('#meterFill');
   fill.style.width = Math.min(100, (occ - hold) / CAP * 100) + '%';
@@ -1222,7 +1326,12 @@ function rangeCheck(){
   return {nights:nights.length, left:CAP - peak, need, fullDay:nights.find(d => occupancyOn(d) + need > CAP),
           locked:cnyLocked(a, b), cny:cnyNightsIn(a, b), closed: closedOn(a) ? a : closedOn(b) ? b : null};
 }
+function renderQuote(){
+  const q = quote(bookEd.pets, $('#checkIn').value, $('#checkOut').value);
+  $('#quoteBox').innerHTML = q ? quoteHtml(q) || '<p class="qt-note">選好寵物後會自動算出金額。</p>' : '<p class="qt-note">選好日期和寵物後，這裡會自動算出金額。</p>';
+}
 function updateAvail(){
+  renderQuote();
   const box = $('#avail'), r = rangeCheck();
   if (!r){ box.hidden = true; return; }
   box.hidden = false;
@@ -1239,10 +1348,10 @@ function updateAvail(){
   if (r.fullDay){
     box.className = 'avail warn';
     box.textContent = r.left <= 0 ? `${md(r.fullDay)} 鴨鵝已經額滿了，請換個日期。`
-      : `這段期間最多只剩 ${r.left} 位，你這次需要 ${r.need} 位${gooseIn(bookEd.pets) ? `（鵝 1 隻佔 ${GOOSE_W} 位）` : ''}，請減少數量或換日期。`;
+      : `這段期間最多只剩 ${r.left} 位，你這次需要 ${r.need} 位${gooseIn(bookEd.pets) ? `（大鴨、鵝 1 隻佔 ${GOOSE_W} 位）` : ''}，請減少數量或換日期。`;
   } else {
     box.className = 'avail';
-    box.textContent = `共 ${r.nights} 晚，這段期間還有 ${r.left} 位` + (r.need ? `，你這次佔 ${r.need} 位${gooseIn(bookEd.pets) ? `（鵝 1 隻佔 ${GOOSE_W} 位）` : ''}。` : '。')
+    box.textContent = `共 ${r.nights} 晚，這段期間還有 ${r.left} 位` + (r.need ? `，你這次佔 ${r.need} 位${gooseIn(bookEd.pets) ? `（大鴨、鵝 1 隻佔 ${GOOSE_W} 位）` : ''}。` : '。')
       + (r.cny ? `其中 ${r.cny} 晚是過年期間，這幾晚會加收 ${CNY_FEE} 服務費。` : '');
   }
 }
@@ -1300,6 +1409,7 @@ function notifyNewBooking(d, bookingId){
     pets: d.pets.map(p => ({name: p.name.trim(), label: T[p.type]?.label || '寵物', qty: p.qty})),
     waterfowl: wfCount(d.pets),
     cnyNights: cnyNightsIn(d.checkIn, d.checkOut), cnyFee: CNY_FEE,
+    price: quote(d.pets, d.checkIn, d.checkOut)?.total || 0,
     site: location.origin + location.pathname
   };
   try {
@@ -1311,9 +1421,11 @@ function showDone(d){
   o.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="doneTitle">
     <img class="done-logo" src="${$('.brand .logo').src}" alt="">
     <h3 id="doneTitle">預約已送出</h3>
-    <p class="hint">${esc(d.ownerName.trim())}，位子已經先幫你保留。館方會用你留的聯絡方式和你聯繫付款，付款完成並經館方確認後，才算預訂成功。</p>
+    <p class="hint">${esc(d.ownerName.trim())}，位子已經先幫你保留。付款完成並經館方確認後，才算預訂成功。</p>
     <p class="hint" style="margin-top:8px">館方確認前，如果要取消，可以到「預約」頁面上方的「我的預約」自己取消。</p>
-    <div class="sum"><div>${md(d.checkIn)} 入住　→　${md(d.checkOut)} 退房</div>${cnyNightsIn(d.checkIn, d.checkOut) ? `<div class="cny-note">含過年期間 ${cnyNightsIn(d.checkIn, d.checkOut)} 晚，加收 ${CNY_FEE} 服務費</div>` : ''}${d.pets.map(p => `<div>${petText(p)}</div>`).join('')}</div>
+    <div class="sum"><div>${md(d.checkIn)} 入住　→　${md(d.checkOut)} 退房</div>${d.pets.map(p => `<div>${petText(p)}</div>`).join('')}
+      <div style="margin-top:8px">${quoteHtml(quote(d.pets, d.checkIn, d.checkOut))}</div></div>
+    ${quote(d.pets, d.checkIn, d.checkOut)?.total ? `<p class="hint" style="margin-top:12px;text-align:left">請匯款 <b style="color:var(--cocoa)">${money(quote(d.pets, d.checkIn, d.checkOut).total)}</b>，匯款完成後告訴館方帳號末五碼，館方確認後就預訂成功了。</p>${bankHtml()}` : ''}
     <button class="btn" id="doneBtn">回首頁</button></div>`;
   o.hidden = false; $('#doneBtn').focus();
   $('#doneBtn').onclick = () => { o.hidden = true; go('home'); };
@@ -1485,7 +1597,7 @@ $('#addGuestForm').addEventListener('submit', async e => {
   } catch (ex){
     console.error(ex);
     err.textContent = ex instanceof FullError
-      ? (long ? `${md(ex.date)} 那天會超過 ${CAP} 位（已有其他預約），請確認數量或入住日。` : `${md(ex.date)} 已經超過 ${CAP} 位了，請確認數量或日期（鵝 1 隻佔 ${GOOSE_W} 位）。`)
+      ? (long ? `${md(ex.date)} 那天會超過 ${CAP} 位（已有其他預約），請確認數量或入住日。` : `${md(ex.date)} 已經超過 ${CAP} 位了，請確認數量或日期（大鴨、鵝 1 隻佔 ${GOOSE_W} 位）。`)
       : (editing ? '儲存失敗，請再試一次。' : '新增失敗，請再試一次。');
   } finally { btn.disabled = false; }
 });
@@ -1588,7 +1700,7 @@ function renderAdmin(){
       <div class="bk-top"><span class="bk-dates">${rangeText(b)}</span>${stTxt}</div>
       ${owner}
       <div class="bk-pets">${b.pets.map((p,i) => `<div class="bk-pet">${active(b) ? `<button type="button" class="photo-pick ${p.photo?'has':''}" data-setphoto="${b.id}:${i}" aria-label="${p.photo?'更換':'加入'} ${esc(p.name)} 的頭貼">${p.photo ? `<img src="${p.photo}" alt="">` : '加<br>頭貼'}</button>` : ''}<span>${petText(p)}</span></div>`).join('')}</div>
-      ${b.cnyNights ? `<div class="cny-note">含過年期間 ${b.cnyNights} 晚・加收 ${CNY_FEE}</div>` : ''}
+      ${b.price ? `<p>試算金額：<b>${money(b.price)}</b>${b.cnyNights ? `<span class="cny-note" style="margin-left:6px">含過年 ${b.cnyNights} 晚・加收 ${CNY_FEE}</span>` : ''}${b.pets.some(p => !PRICES[p.type]) ? '<span class="hint">（其他寵物另計）</span>' : ''}</p>` : (b.cnyNights ? `<div class="cny-note">含過年期間 ${b.cnyNights} 晚・加收 ${CNY_FEE}</div>` : '')}
       ${b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
       ${actions}
     </div>`;
