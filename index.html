@@ -474,8 +474,9 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
             <tr><td>狗狗 10–15 公斤（每隻）</td><td>$665</td><td>$770</td></tr>
             <tr><td>貓咪 小別墅區（每隻）</td><td>$560</td><td>$686</td></tr>
             <tr><td>貓咪 大別墅區（每隻）</td><td>$686</td><td>$826</td></tr>
+            <tr><td>鳥、兔子、烏龜、鼠（每隻）</td><td colspan="2" style="text-align:center">$315（不分平假日）</td></tr>
           </table>
-          <p class="qt-note">以上為每晚價格。平日：週一～週五；假日：週六、週日及國定假日（含連假）。過年期間另加收 10%。15 公斤以上的狗狗、鳥類和其他寵物費用另計。</p>
+          <p class="qt-note">以上為每晚價格。平日：週一～週五；假日：週六、週日及國定假日（含連假）。過年期間另加收 10%。鳥、兔子、烏龜、鼠請自備籠子和飼料。15 公斤以上的狗狗和其他動物費用另計。</p>
         </details>
       </div>
 
@@ -714,7 +715,7 @@ const TYPES = [
   {key:'dog',   label:'狗狗',   emoji:'🐶'},
   {key:'cat',   label:'貓咪',   emoji:'🐱'},
   {key:'bird',  label:'鳥類',   emoji:'🐦'},
-  {key:'other', label:'其他',   emoji:'🐾'}
+  {key:'other', label:'其他小動物', emoji:'🐾'}
 ];
 const T = Object.fromEntries(TYPES.map(t => [t.key, t]));
 const CAP = CONFIG.waterfowlCap;
@@ -747,12 +748,17 @@ const PRICES = {
 /* 狗狗依體重、貓咪依房型計價（每隻每晚） */
 const OPTIONS = {
   dog: {label: '體重', items: [{key: 'd10', label: '1–10 公斤'}, {key: 'd15', label: '10–15 公斤'}, {key: 'd15p', label: '15 公斤以上'}]},
-  cat: {label: '房型', items: [{key: 'small', label: '小別墅區'}, {key: 'large', label: '大別墅區'}]}
+  cat: {label: '房型', items: [{key: 'small', label: '小別墅區'}, {key: 'large', label: '大別墅區'}]},
+  other: {label: '種類', items: [{key: 'rabbit', label: '兔子'}, {key: 'turtle', label: '烏龜'}, {key: 'rodent', label: '鼠'}, {key: 'etc', label: '其他'}]}
 };
 const OPT_PRICES = {
   dog: {d10:   {weekday: 560, holiday: 665}, d15:   {weekday: 665, holiday: 770}},   // 15 公斤以上另計
   cat: {small: {weekday: 560, holiday: 686}, large: {weekday: 686, holiday: 826}}
 };
+/* 不分平假日的小動物（每隻每晚），需自備籠子和飼料 */
+const FLAT_PRICES = {'bird|': 315, 'other|rabbit': 315, 'other|turtle': 315, 'other|rodent': 315};
+const flatKey = p => p.type + '|' + (OPTIONS[p.type] ? (p.opt || '') : '');
+const needsGear = pets => pets.some(p => p.type === 'bird' || p.type === 'other');
 const optLabel = p => OPTIONS[p.type]?.items.find(o => o.key === p.opt)?.label || '';
 const fixOpt = p => { const o = OPTIONS[p.type]; if (!o) { delete p.opt; return p; } if (!o.items.some(x => x.key === p.opt)) p.opt = o.items[0].key; return p; };
 const isHolidayRate = d => { const w = parse(d).getDay(); return w === 0 || w === 6 || !!holidayOn(d); };
@@ -769,7 +775,9 @@ function quote(pets, a, b){
   // 狗狗、貓咪：依體重／房型分組
   const optQty = {};
   pets.forEach(p => { const pr = OPT_PRICES[p.type]?.[p.opt]; if (pr){ const k = p.type + '|' + p.opt; optQty[k] = (optQty[k]||0) + (Number(p.qty)||0); } });
-  const rows = [], unpriced = [...new Set(pets.filter(p => !PRICES[p.type] && !OPT_PRICES[p.type]?.[p.opt])
+  const flatQty = {};
+  pets.forEach(p => { const k = flatKey(p); if (FLAT_PRICES[k]) flatQty[k] = (flatQty[k]||0) + (Number(p.qty)||0); });
+  const rows = [], unpriced = [...new Set(pets.filter(p => !PRICES[p.type] && !OPT_PRICES[p.type]?.[p.opt] && !FLAT_PRICES[flatKey(p)])
     .map(p => (T[p.type]?.label || '其他') + (optLabel(p) ? `（${optLabel(p)}）` : '')))];
   let total = 0, cnyBase = 0;
   for (const kind of ['weekday', 'holiday']){
@@ -790,16 +798,26 @@ function quote(pets, a, b){
       cnyBase += per * nights.filter(d => holidayOn(d)?.cny).length;
     }
   }
+  // 不分平假日
+  const allN = nightsOf(a, b);
+  for (const [k, n] of Object.entries(flatQty)){
+    const [t, o] = k.split('|');
+    const per = FLAT_PRICES[k] * n, sub = per * allN.length;
+    rows.push({kind: 'all', nights: allN.length, label: o ? optLabel({type: t, opt: o}) : T[t].label, qty: n, per, sub});
+    total += sub;
+    cnyBase += per * allN.filter(d => holidayOn(d)?.cny).length;
+  }
   const cnyExtra = Math.round(cnyBase * parseFloat(CNY_FEE) / 100);
-  return {total: total + cnyExtra, rows, cnyExtra, unpriced};
+  return {total: total + cnyExtra, rows, cnyExtra, unpriced, gear: needsGear(pets)};
 }
 function quoteHtml(q){
   if (!q || (!q.rows.length && !q.unpriced.length)) return '';
-  const K = {weekday: '平日', holiday: '假日'};
-  return `<table class="qt">${q.rows.map(r => `<tr><td>${K[r.kind]} ${r.nights} 晚・${esc(r.label)} ${r.qty} 隻</td><td>${money(r.per)} × ${r.nights}</td><td>${money(r.sub)}</td></tr>`).join('')}
+  const K = {weekday: '平日 ', holiday: '假日 ', all: ''};
+  return `<table class="qt">${q.rows.map(r => `<tr><td>${K[r.kind]}${r.nights} 晚・${esc(r.label)} ${r.qty} 隻</td><td>${money(r.per)} × ${r.nights}</td><td>${money(r.sub)}</td></tr>`).join('')}
     ${q.cnyExtra ? `<tr class="cny"><td colspan="2">過年期間加收 ${CNY_FEE}</td><td>${money(q.cnyExtra)}</td></tr>` : ''}
     <tr class="total"><td colspan="2">合計</td><td>${money(q.total)}</td></tr></table>
-    ${q.unpriced.length ? `<p class="qt-note">${q.unpriced.map(esc).join('、')}的費用另計，館方會再和你確認。</p>` : ''}`;
+    ${q.unpriced.length ? `<p class="qt-note">${q.unpriced.map(esc).join('、')}的費用另計，館方會再和你確認。</p>` : ''}
+    ${q.gear ? '<p class="qt-note" style="color:var(--full)">鳥類、兔子、烏龜、鼠等小動物請自備籠子和飼料。</p>' : ''}`;
 }
 function bankHtml(){
   const k = CONFIG.bank || {};
@@ -1736,7 +1754,7 @@ function renderAdmin(){
       <div class="bk-top"><span class="bk-dates">${rangeText(b)}</span>${stTxt}</div>
       ${owner}
       <div class="bk-pets">${b.pets.map((p,i) => `<div class="bk-pet">${active(b) ? `<button type="button" class="photo-pick ${p.photo?'has':''}" data-setphoto="${b.id}:${i}" aria-label="${p.photo?'更換':'加入'} ${esc(p.name)} 的頭貼">${p.photo ? `<img src="${p.photo}" alt="">` : '加<br>頭貼'}</button>` : ''}<span>${petText(p)}</span></div>`).join('')}</div>
-      ${b.price ? `<p>試算金額：<b>${money(b.price)}</b>${b.cnyNights ? `<span class="cny-note" style="margin-left:6px">含過年 ${b.cnyNights} 晚・加收 ${CNY_FEE}</span>` : ''}${b.pets.some(p => !PRICES[p.type] && !OPT_PRICES[p.type]?.[p.opt]) ? '<span class="hint">（部分寵物另計）</span>' : ''}</p>` : (b.cnyNights ? `<div class="cny-note">含過年期間 ${b.cnyNights} 晚・加收 ${CNY_FEE}</div>` : '')}
+      ${b.price ? `<p>試算金額：<b>${money(b.price)}</b>${b.cnyNights ? `<span class="cny-note" style="margin-left:6px">含過年 ${b.cnyNights} 晚・加收 ${CNY_FEE}</span>` : ''}${b.pets.some(p => !PRICES[p.type] && !OPT_PRICES[p.type]?.[p.opt] && !FLAT_PRICES[flatKey(p)]) ? '<span class="hint">（部分寵物另計）</span>' : ''}</p>` : (b.cnyNights ? `<div class="cny-note">含過年期間 ${b.cnyNights} 晚・加收 ${CNY_FEE}</div>` : '')}
       ${b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
       ${actions}
     </div>`;
