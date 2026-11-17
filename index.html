@@ -225,6 +225,10 @@ textarea.field{min-height:88px;resize:vertical}
 .my-item p{margin:4px 0 0;font-size:14px}
 .my-item .acts{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
 
+/* ---------- 體重／房型選項 ---------- */
+.opt-pick{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}
+.opt-pick .qty-note{margin-right:2px}
+
 /* ---------- 金額試算 ---------- */
 .quote{background:var(--tint);border-radius:12px;padding:12px 14px}
 .qt{width:100%;border-collapse:collapse;font-size:13.5px}
@@ -444,7 +448,8 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
       </div>
       <div class="group">
         <label class="label" for="contact">聯絡方式<span class="req">必填</span></label>
-        <input class="field" id="contact" placeholder="手機或 LINE ID">
+        <input class="field" id="contact" placeholder="例如：0912-345-678 或 LINE：kolduck">
+        <p class="hint" style="margin-top:6px">請留電話號碼或 LINE 帳號，館方會用這個和你聯絡。</p>
       </div>
 
       <div class="group">
@@ -465,8 +470,12 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
             <tr><td>柯爾鴨第 3 隻起，每隻加</td><td>+$150</td><td>+$200</td></tr>
             <tr><td>大鴨（番鴨）1 隻</td><td>$455</td><td>$560</td></tr>
             <tr><td>鵝 1 隻</td><td>$455</td><td>$560</td></tr>
+            <tr><td>狗狗 1–10 公斤（每隻）</td><td>$560</td><td>$665</td></tr>
+            <tr><td>狗狗 10–15 公斤（每隻）</td><td>$665</td><td>$770</td></tr>
+            <tr><td>貓咪 小別墅區（每隻）</td><td>$560</td><td>$686</td></tr>
+            <tr><td>貓咪 大別墅區（每隻）</td><td>$686</td><td>$826</td></tr>
           </table>
-          <p class="qt-note">以上為每晚價格。平日：週一～週五；假日：週六、週日及國定假日（含連假）。過年期間另加收 10%。</p>
+          <p class="qt-note">以上為每晚價格。平日：週一～週五；假日：週六、週日及國定假日（含連假）。過年期間另加收 10%。15 公斤以上的狗狗、鳥類和其他寵物費用另計。</p>
         </details>
       </div>
 
@@ -735,6 +744,17 @@ const PRICES = {
   muscovy: {weekday: {one: 455},           holiday: {one: 560}},
   goose:   {weekday: {one: 455},           holiday: {one: 560}}
 };
+/* 狗狗依體重、貓咪依房型計價（每隻每晚） */
+const OPTIONS = {
+  dog: {label: '體重', items: [{key: 'd10', label: '1–10 公斤'}, {key: 'd15', label: '10–15 公斤'}, {key: 'd15p', label: '15 公斤以上'}]},
+  cat: {label: '房型', items: [{key: 'small', label: '小別墅區'}, {key: 'large', label: '大別墅區'}]}
+};
+const OPT_PRICES = {
+  dog: {d10:   {weekday: 560, holiday: 665}, d15:   {weekday: 665, holiday: 770}},   // 15 公斤以上另計
+  cat: {small: {weekday: 560, holiday: 686}, large: {weekday: 686, holiday: 826}}
+};
+const optLabel = p => OPTIONS[p.type]?.items.find(o => o.key === p.opt)?.label || '';
+const fixOpt = p => { const o = OPTIONS[p.type]; if (!o) { delete p.opt; return p; } if (!o.items.some(x => x.key === p.opt)) p.opt = o.items[0].key; return p; };
 const isHolidayRate = d => { const w = parse(d).getDay(); return w === 0 || w === 6 || !!holidayOn(d); };
 const money = n => '$' + Math.round(n).toLocaleString('en-US');
 function nightPrice(type, qty, kind){
@@ -746,7 +766,11 @@ function nightPrice(type, qty, kind){
 function quote(pets, a, b){
   if (!a || !b || b <= a || b === '9999-12-31') return null;
   const qty = {}; pets.forEach(p => { qty[p.type] = (qty[p.type]||0) + (Number(p.qty)||0); });
-  const rows = [], unpriced = [...new Set(pets.filter(p => !PRICES[p.type]).map(p => T[p.type]?.label || '其他'))];
+  // 狗狗、貓咪：依體重／房型分組
+  const optQty = {};
+  pets.forEach(p => { const pr = OPT_PRICES[p.type]?.[p.opt]; if (pr){ const k = p.type + '|' + p.opt; optQty[k] = (optQty[k]||0) + (Number(p.qty)||0); } });
+  const rows = [], unpriced = [...new Set(pets.filter(p => !PRICES[p.type] && !OPT_PRICES[p.type]?.[p.opt])
+    .map(p => (T[p.type]?.label || '其他') + (optLabel(p) ? `（${optLabel(p)}）` : '')))];
   let total = 0, cnyBase = 0;
   for (const kind of ['weekday', 'holiday']){
     const nights = nightsOf(a, b).filter(d => (kind === 'holiday') === isHolidayRate(d));
@@ -755,6 +779,13 @@ function quote(pets, a, b){
       if (!qty[t]) continue;
       const per = nightPrice(t, qty[t], kind), sub = per * nights.length;
       rows.push({kind, nights: nights.length, label: T[t].label, qty: qty[t], per, sub});
+      total += sub;
+      cnyBase += per * nights.filter(d => holidayOn(d)?.cny).length;
+    }
+    for (const [k, n] of Object.entries(optQty)){
+      const [t, o] = k.split('|');
+      const per = OPT_PRICES[t][o][kind] * n, sub = per * nights.length;
+      rows.push({kind, nights: nights.length, label: `${T[t].label}（${optLabel({type: t, opt: o})}）`, qty: n, per, sub});
       total += sub;
       cnyBase += per * nights.filter(d => holidayOn(d)?.cny).length;
     }
@@ -804,7 +835,7 @@ function checkRangeFits(checkIn, checkOut, wf, exceptId){
 }
 const longOn = (map, d) => Object.values(map || {}).reduce((s, e) =>
   s + (e && e.from && e.from <= d && (!e.until || d < e.until) ? (e.wf||0) : 0), 0);
-const petText = p => `${esc(p.name)}<span style="color:var(--soft)">・${T[p.type]?.label||'寵物'}${p.qty>1 ? ` ${p.qty} 隻` : ''}</span>`;
+const petText = p => `${esc(p.name)}<span style="color:var(--soft)">・${T[p.type]?.label||'寵物'}${optLabel(p) ? `（${optLabel(p)}）` : ''}${p.qty>1 ? ` ${p.qty} 隻` : ''}</span>`;
 
 function toast(msg){
   const t = $('#toast'); t.textContent = msg; t.hidden = false;
@@ -813,7 +844,7 @@ function toast(msg){
 class FullError extends Error { constructor(date){ super('full'); this.date = date; } }
 
 function splitDoc(d, status = 'pending'){
-  const pets = d.pets.map(p => ({type:p.type, name:p.name.trim(), qty:Number(p.qty)||1, photo:p.photo||''}));
+  const pets = d.pets.map(p => ({type:p.type, name:p.name.trim(), qty:Number(p.qty)||1, photo:p.photo||'', ...(OPTIONS[p.type] ? {opt: fixOpt({...p}).opt} : {})}));
   const base = {checkIn:d.checkIn, checkOut:d.checkOut, pets, waterfowl:wfCount(pets), status, createdAt:Date.now(), ...(d.longStay ? {longStay:true} : {}), cnyNights: cnyNightsIn(d.checkIn, d.checkOut), price: quote(pets, d.checkIn, d.checkOut)?.total || 0};
   return {
     pub:  {...base},
@@ -1186,7 +1217,7 @@ function loadProfile(){
 }
 function saveProfile(d){
   const prof = {ownerName:d.ownerName.trim(), contact:d.contact.trim(),
-                pets:d.pets.map(p => ({type:p.type, name:p.name.trim(), qty:p.qty, photo:p.photo||''}))};
+                pets:d.pets.map(p => ({type:p.type, name:p.name.trim(), qty:p.qty, photo:p.photo||'', opt:p.opt||''}))};
   try { localStorage.setItem(PROFILE_KEY, JSON.stringify(prof)); }
   catch {   // 空間不夠就不存頭貼
     try { prof.pets.forEach(p => p.photo = ''); localStorage.setItem(PROFILE_KEY, JSON.stringify(prof)); } catch {}
@@ -1199,7 +1230,7 @@ function applyProfile(){
   if (prof && prof.pets?.length){
     $('#ownerName').value = prof.ownerName || '';
     $('#contact').value = prof.contact || '';
-    bookEd.pets = prof.pets.filter(p => T[p.type]).map(p => ({type:p.type, name:p.name||'', qty:Math.max(1, Number(p.qty)||1), photo:p.photo||''}));
+    bookEd.pets = prof.pets.filter(p => T[p.type]).map(p => fixOpt({type:p.type, name:p.name||'', qty:Math.max(1, Number(p.qty)||1), photo:p.photo||'', opt:p.opt||''}));
   }
   if (!bookEd.pets.length || !prof) bookEd.pets = [{type:'duck', name:'', qty:1, photo:''}];
   $('#rememberMe').checked = true;
@@ -1287,6 +1318,10 @@ function petEditor(box, addBtn, onChange){
         <button type="button" class="photo-pick ${p.photo?'has':''}" data-photo="${i}" aria-label="${p.photo?'更換':'加入'}頭貼">${p.photo ? `<img src="${p.photo}" alt="">` : '加<br>頭貼'}</button>
         <input class="field" data-i="${i}" value="${esc(p.name)}" placeholder="${p.qty>1 ? '名字，多隻用頓號分開' : '寵物名字'}" aria-label="寵物名字">
       </div>
+      ${OPTIONS[fixOpt(p).type] ? `<div class="opt-pick" role="group" aria-label="${OPTIONS[p.type].label}">
+        <span class="qty-note">${OPTIONS[p.type].label}</span>
+        ${OPTIONS[p.type].items.map(o => `<button type="button" class="type-chip ${p.opt===o.key?'on':''}" data-i="${i}" data-opt="${o.key}" aria-pressed="${p.opt===o.key}">${o.label}</button>`).join('')}
+      </div>` : ''}
       <div class="row-foot">
         <div class="qty">
           <span class="qty-note">數量</span>
@@ -1304,7 +1339,8 @@ function petEditor(box, addBtn, onChange){
     const ph = e.target.closest('[data-photo]');
     if (ph){ const url = await pickPhoto(); if (url){ ed.pets[ph.dataset.photo].photo = url; ed.render(); } return; }
     const chip = e.target.closest('.type-chip'), step = e.target.closest('[data-step]'), rm = e.target.closest('[data-remove]');
-    if (chip) ed.pets[chip.dataset.i].type = chip.dataset.type;
+    if (chip && chip.dataset.opt) ed.pets[chip.dataset.i].opt = chip.dataset.opt;
+    else if (chip) fixOpt(Object.assign(ed.pets[chip.dataset.i], {type: chip.dataset.type}));
     else if (step){ const p = ed.pets[step.dataset.i]; p.qty = Math.min(CAP, Math.max(1, p.qty + Number(step.dataset.step))); }
     else if (rm) ed.pets.splice(Number(rm.dataset.remove), 1);
     else return;
@@ -1557,7 +1593,7 @@ function openAddGuest(show, b = null){
     $('#agOut').value = isLong(b) ? addDays(b.checkIn > today() ? b.checkIn : today(), 1) : b.checkOut;
     setLongUI(isLong(b));
     $('#agOwner').value = b.ownerName || ''; $('#agContact').value = b.contact || ''; $('#agNotes').value = b.notes || '';
-    agEd.pets = b.pets.map(p => ({type:p.type, name:p.name, qty:p.qty, photo:p.photo||''}));
+    agEd.pets = b.pets.map(p => fixOpt({type:p.type, name:p.name, qty:p.qty, photo:p.photo||'', opt:p.opt||''}));
   } else {
     $('#agIn').value = today(); $('#agOut').value = addDays(today(), 1);
     setLongUI(false);
@@ -1700,7 +1736,7 @@ function renderAdmin(){
       <div class="bk-top"><span class="bk-dates">${rangeText(b)}</span>${stTxt}</div>
       ${owner}
       <div class="bk-pets">${b.pets.map((p,i) => `<div class="bk-pet">${active(b) ? `<button type="button" class="photo-pick ${p.photo?'has':''}" data-setphoto="${b.id}:${i}" aria-label="${p.photo?'更換':'加入'} ${esc(p.name)} 的頭貼">${p.photo ? `<img src="${p.photo}" alt="">` : '加<br>頭貼'}</button>` : ''}<span>${petText(p)}</span></div>`).join('')}</div>
-      ${b.price ? `<p>試算金額：<b>${money(b.price)}</b>${b.cnyNights ? `<span class="cny-note" style="margin-left:6px">含過年 ${b.cnyNights} 晚・加收 ${CNY_FEE}</span>` : ''}${b.pets.some(p => !PRICES[p.type]) ? '<span class="hint">（其他寵物另計）</span>' : ''}</p>` : (b.cnyNights ? `<div class="cny-note">含過年期間 ${b.cnyNights} 晚・加收 ${CNY_FEE}</div>` : '')}
+      ${b.price ? `<p>試算金額：<b>${money(b.price)}</b>${b.cnyNights ? `<span class="cny-note" style="margin-left:6px">含過年 ${b.cnyNights} 晚・加收 ${CNY_FEE}</span>` : ''}${b.pets.some(p => !PRICES[p.type] && !OPT_PRICES[p.type]?.[p.opt]) ? '<span class="hint">（部分寵物另計）</span>' : ''}</p>` : (b.cnyNights ? `<div class="cny-note">含過年期間 ${b.cnyNights} 晚・加收 ${CNY_FEE}</div>` : '')}
       ${b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
       ${actions}
     </div>`;
