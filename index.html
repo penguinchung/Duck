@@ -230,6 +230,11 @@ textarea.field{min-height:88px;resize:vertical}
 .opt-pick .qty-note{margin-right:2px}
 
 /* ---------- 金額試算 ---------- */
+.bk-price{margin-top:8px;font-size:14px}
+.bk-price summary{cursor:pointer;list-style-position:inside}
+.bk-price summary b{font-size:16px;font-weight:500;margin-left:4px}
+.bk-price .qt{margin-top:6px;background:var(--tint);border-radius:8px;padding:6px 10px;display:block}
+.bk-price .qt tbody{display:table;width:100%}
 .quote{background:var(--tint);border-radius:12px;padding:12px 14px}
 .qt{width:100%;border-collapse:collapse;font-size:13.5px}
 .qt td,.qt th{padding:5px 0;text-align:right;white-space:nowrap}
@@ -1755,7 +1760,11 @@ function renderAdmin(){
       <div class="bk-top"><span class="bk-dates">${rangeText(b)}</span>${stTxt}</div>
       ${owner}
       <div class="bk-pets">${b.pets.map((p,i) => `<div class="bk-pet">${active(b) ? `<button type="button" class="photo-pick ${p.photo?'has':''}" data-setphoto="${b.id}:${i}" aria-label="${p.photo?'更換':'加入'} ${esc(p.name)} 的頭貼">${p.photo ? `<img src="${p.photo}" alt="">` : '加<br>頭貼'}</button>` : ''}<span>${petText(p)}</span></div>`).join('')}</div>
-      ${b.price ? `<p>試算金額：<b>${money(b.price)}</b>${b.cnyNights ? `<span class="cny-note" style="margin-left:6px">含過年 ${b.cnyNights} 晚・加收 ${CNY_FEE}</span>` : ''}${b.pets.some(p => !PRICES[p.type] && !OPT_PRICES[p.type]?.[p.opt] && !FLAT_PRICES[flatKey(p)]) ? '<span class="hint">（部分寵物另計）</span>' : ''}</p>` : (b.cnyNights ? `<div class="cny-note">含過年期間 ${b.cnyNights} 晚・加收 ${CNY_FEE}</div>` : '')}
+      ${(() => {   // 試算金額：每次用最新的價格規則計算，點開看明細
+        const q = isLong(b) ? null : quote(b.pets, b.checkIn, b.checkOut);
+        if (!q || (!q.rows.length && !q.unpriced.length)) return b.cnyNights ? `<div class="cny-note">含過年期間 ${b.cnyNights} 晚・加收 ${CNY_FEE}</div>` : '';
+        return `<details class="bk-price"><summary>試算金額 <b>${money(q.total)}</b>${q.unpriced.length ? '<span class="hint">（部分寵物另計）</span>' : ''}${q.cnyExtra ? `<span class="cny-note" style="margin-left:6px">含過年加收</span>` : ''}</summary>${quoteHtml(q)}</details>`;
+      })()}
       ${b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
       ${actions}
     </div>`;
