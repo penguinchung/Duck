@@ -476,7 +476,7 @@ input[type="date"]::-webkit-date-and-time-value{text-align:left}
             <tr><td>貓咪 大別墅區（每隻）</td><td>$686</td><td>$826</td></tr>
             <tr><td>鳥、兔子、烏龜、鼠（每隻）</td><td colspan="2" style="text-align:center">$315（不分平假日）</td></tr>
           </table>
-          <p class="qt-note">以上為每晚價格。平日：週一～週五；假日：週六、週日及國定假日（含連假）。過年期間另加收 10%。鳥、兔子、烏龜、鼠請自備籠子和飼料。15 公斤以上的狗狗和其他動物費用另計。</p>
+          <p class="qt-note">以上為每晚價格，依住的那一晚計算。平日：週日～週四晚上；假日：週五、週六晚上，以及國定假日、連假的前一晚和期間（隔天放假的晚上）。過年期間另加收 10%。鳥、兔子、烏龜、鼠請自備籠子和飼料。15 公斤以上的狗狗和其他動物費用另計。</p>
         </details>
       </div>
 
@@ -738,7 +738,7 @@ const gooseIn = pets => pets.reduce((s,p) => s + ((p.type === 'goose' || p.type 
 const GOOSE_W = 4;
 
 /* ---------- 住宿價格（每晚） ----------
-   平日：週一～週五、非國定假日；假日：週六、週日、國定假日與連假
+   依「住的那一晚」算：隔天要上班的晚上是平日（週日～週四晚），隔天放假的晚上是假日（週五、週六晚，以及國定假日、連假的前一晚和期間）
    柯爾鴨：1 隻＝一隻價；2 隻＝兩隻價；第 3 隻起每隻加「兩隻價－一隻價」（平日 +150、假日 +200） */
 const PRICES = {
   duck:    {weekday: {one: 300, two: 450}, holiday: {one: 456, two: 656}},
@@ -761,7 +761,8 @@ const flatKey = p => p.type + '|' + (OPTIONS[p.type] ? (p.opt || '') : '');
 const needsGear = pets => pets.some(p => p.type === 'bird' || p.type === 'other');
 const optLabel = p => OPTIONS[p.type]?.items.find(o => o.key === p.opt)?.label || '';
 const fixOpt = p => { const o = OPTIONS[p.type]; if (!o) { delete p.opt; return p; } if (!o.items.some(x => x.key === p.opt)) p.opt = o.items[0].key; return p; };
-const isHolidayRate = d => { const w = parse(d).getDay(); return w === 0 || w === 6 || !!holidayOn(d); };
+const isOffDay = d => { const w = parse(d).getDay(); return w === 0 || w === 6 || !!holidayOn(d); };
+const isHolidayRate = d => isOffDay(addDays(d, 1));   // d 這一晚：隔天放假就是假日價
 const money = n => '$' + Math.round(n).toLocaleString('en-US');
 function nightPrice(type, qty, kind){
   const p = PRICES[type]?.[kind]; if (!p || !qty) return 0;
