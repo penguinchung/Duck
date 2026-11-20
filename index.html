@@ -708,13 +708,15 @@ const closedOn = d => {
   return null;
 };
 const holidayOn = d => HOLIDAYS.find(h => h.from <= d && d <= h.to);
+// 過年加收的晚上：隔天是春節的那一晚（例：春節 2/4–2/10 → 2/3～2/9 晚上加收，2/10 晚上不加）
+const cnyNight = d => { const h = holidayOn(addDays(d, 1)); return h?.cny ? h : null; };
 const cnyNightsIn = (a, b) => (!a || !b || b <= a || b === '9999-12-31') ? 0
-  : nightsOf(a, b).filter(d => holidayOn(d)?.cny).length;
+  : nightsOf(a, b).filter(d => cnyNight(d)).length;
 // 過年還沒開放預約：回傳那段過年，否則 null
 const cnyLocked = (a, b) => {
   if (!a || !b || b <= a) return null;
   const t = today();
-  for (const d of nightsOf(a, b)){ const h = holidayOn(d); if (h?.cny && t < h.open) return h; }
+  for (const d of nightsOf(a, b)){ const h = cnyNight(d); if (h && t < h.open) return h; }
   return null;
 };
 const fmtYMD = s => { const [y,m,dd] = s.split('-').map(Number); return `${y}/${m}/${dd}`; };
@@ -800,14 +802,14 @@ function quote(pets, a, b){
       const per = nightPrice(t, qty[t], kind), sub = per * nights.length;
       rows.push({kind, nights: nights.length, label: T[t].label, qty: qty[t], per, sub});
       total += sub;
-      cnyBase += per * nights.filter(d => holidayOn(d)?.cny).length;
+      cnyBase += per * nights.filter(d => cnyNight(d)).length;
     }
     for (const [k, n] of Object.entries(optQty)){
       const [t, o] = k.split('|');
       const per = OPT_PRICES[t][o][kind] * n, sub = per * nights.length;
       rows.push({kind, nights: nights.length, label: `${T[t].label}（${optLabel({type: t, opt: o})}）`, qty: n, per, sub});
       total += sub;
-      cnyBase += per * nights.filter(d => holidayOn(d)?.cny).length;
+      cnyBase += per * nights.filter(d => cnyNight(d)).length;
     }
   }
   // 不分平假日
@@ -817,7 +819,7 @@ function quote(pets, a, b){
     const per = FLAT_PRICES[k] * n, sub = per * allN.length;
     rows.push({kind: 'all', nights: allN.length, label: o ? optLabel({type: t, opt: o}) : T[t].label, qty: n, per, sub});
     total += sub;
-    cnyBase += per * allN.filter(d => holidayOn(d)?.cny).length;
+    cnyBase += per * allN.filter(d => cnyNight(d)).length;
   }
   const cnyExtra = Math.round(cnyBase * parseFloat(CNY_FEE) / 100);
   return {total: total + cnyExtra, rows, cnyExtra, unpriced, gear: needsGear(pets)};
@@ -1146,13 +1148,13 @@ let selDate = today();
 let loaded = false;
 function renderDay(){
   const d = selDate, occ = occupancyOn(d), left = CAP - occ, lv = levelOf(left);
-  const h = holidayOn(d), locked = h?.cny && today() < h.open && d >= today(), cl = closedOn(d);
+  const h = holidayOn(d), cn = cnyNight(d), locked = !!cn && today() < cn.open && d >= today(), cl = closedOn(d);
   $('#dayTitle').innerHTML = esc(d === today() ? '今天的鴨鴨' : `${md(d)}的鴨鴨`) + (h ? `<span class="hol-tag">${esc(h.name)}</span>` : '')
     + (cl ? `<span class="closed-tag">公休${cl.note && !cl.weekly ? '・' + esc(cl.note) : ''}</span>` : '');
   const st = $('#dayStatus');
   st.className = 'status ' + lv;
   st.textContent = !loaded ? '讀取中…' : d < today() ? '已過去的日期' : lv === 'full' ? '已額滿'
-    : cl ? '公休日，不開放入住和退房' : locked ? `${fmtYMD(h.open)} 開放預訂` : lv === 'low' ? `快額滿，剩 ${left} 位` : `還有 ${left} 位`;
+    : cl ? '公休日，不開放入住和退房' : locked ? `${fmtYMD(cn.open)} 開放預訂` : lv === 'low' ? `快額滿，剩 ${left} 位` : `還有 ${left} 位`;
   const hold = publicList.filter(b => isPending(b) && b.checkIn <= d && d < b.checkOut).reduce((s,b) => s + (b.waterfowl||0), 0);
   const stayingB = publicList.filter(b => active(b) && b.checkIn <= d && d < b.checkOut);
   const nDuck = stayingB.reduce((s,b) => s + b.pets.reduce((t,p) => t + (p.type === 'duck' ? p.qty : 0), 0), 0);
@@ -1408,7 +1410,7 @@ function updateAvail(){
   }
   if (r.locked){
     box.className = 'avail warn';
-    box.textContent = `過年期間（${md(r.locked.from)}－${md(r.locked.to)}）的住宿將於 ${fmtYMD(r.locked.open)} 開放預訂，目前還不能預約這幾天。`;
+    box.textContent = `過年期間（${md(addDays(r.locked.from, -1))}～${md(addDays(r.locked.to, -1))} 晚上）的住宿將於 ${fmtYMD(r.locked.open)} 開放預訂，目前還不能預約這幾天。`;
     return;
   }
   if (r.fullDay){
