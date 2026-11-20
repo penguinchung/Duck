@@ -1,0 +1,14 @@
+{
+  "name": "柯爾鴨精品休閒館 台中館",
+  "short_name": "柯爾鴨休閒館",
+  "start_url": "./",
+  "scope": "./",
+  "display": "browser",
+  "background_color": "#F8F4EE",
+  "theme_color": "#F8F4EE",
+  "icons": [
+    { "src": "images/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "images/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "images/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
